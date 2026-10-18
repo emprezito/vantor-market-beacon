@@ -74,7 +74,7 @@ function Index() {
               <div key={s} className="flex justify-between border-b border-secondary-foreground/10 py-3 last:border-0">
                 <span className="font-semibold">{s}</span>
                 <span className="font-mono">{p}</span>
-                <span className={c.startsWith("+") ? "text-accent" : "text-destructive"}>{c}</span>
+                <span className={c?.startsWith("+") ? "text-accent" : "text-destructive"}>{c}</span>
               </div>
             ))}
           </div>
