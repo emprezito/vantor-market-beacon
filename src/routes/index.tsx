@@ -1,4 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { useSession } from "@/hooks/use-session";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -38,19 +42,33 @@ const accounts = [
 ];
 
 function Index() {
+  const session = useSession();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const signOut = async () => {
+    await qc.cancelQueries();
+    qc.clear();
+    await supabase.auth.signOut();
+    navigate({ to: "/auth", replace: true });
+  };
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-10 bg-secondary text-secondary-foreground">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <span className="text-2xl font-extrabold tracking-tight text-primary">vantor</span>
           <nav className="hidden gap-8 text-sm md:flex">
-            {["Trading", "Markets", "Platforms", "Tools", "Company"].map((n) => (
-              <a key={n} href="#" className="opacity-80 hover:opacity-100">{n}</a>
-            ))}
+            <Link to="/trade" className="opacity-80 hover:opacity-100">Trading</Link>
+            <Link to="/history" className="opacity-80 hover:opacity-100">History</Link>
+            <Link to="/wallet" className="opacity-80 hover:opacity-100">Wallet</Link>
           </nav>
           <div className="flex gap-3 text-sm">
-            <a href="#" className="px-4 py-2 opacity-80 hover:opacity-100">Sign in</a>
-            <a href="#" className="rounded-md bg-primary px-4 py-2 font-semibold text-primary-foreground">Register</a>
+            {session ? <>
+              <Button variant="ghost" onClick={signOut}>Sign out</Button>
+              <Button asChild><Link to="/trade">Trade</Link></Button>
+            </> : <>
+              <Button variant="ghost" asChild><Link to="/auth" search={{ mode: "in" }}>Sign in</Link></Button>
+              <Button asChild><Link to="/auth" search={{ mode: "up" }}>Register</Link></Button>
+            </>}
           </div>
         </div>
       </header>
@@ -65,8 +83,8 @@ function Index() {
               Better-than-market conditions, instant withdrawals and execution in milliseconds.
             </p>
             <div className="mt-8 flex gap-4">
-              <a href="#" className="rounded-md bg-primary px-6 py-3 font-semibold text-primary-foreground">Open account</a>
-              <a href="#" className="rounded-md border border-secondary-foreground/30 px-6 py-3 font-semibold">Try free demo</a>
+              <Button size="lg" asChild><Link to="/auth" search={{ mode: "up" }}>Open account</Link></Button>
+              <Button size="lg" variant="ghost" className="border border-secondary-foreground/30" asChild><Link to={session ? "/trade" : "/auth"} search={{ mode: "up" }}>Try free demo</Link></Button>
             </div>
           </div>
           <div className="rounded-2xl border border-secondary-foreground/10 bg-secondary-foreground/5 p-6">
@@ -106,7 +124,7 @@ function Index() {
                   <div className="flex justify-between"><dt className="text-muted-foreground">Spread</dt><dd>{sp}</dd></div>
                   <div className="flex justify-between"><dt className="text-muted-foreground">Commission</dt><dd>{com}</dd></div>
                 </dl>
-                <a href="#" className="mt-6 block rounded-md bg-primary py-2 text-center font-semibold text-primary-foreground">Open account</a>
+                <Button className="mt-6 w-full" asChild><Link to="/auth" search={{ mode: "up" }}>Open account</Link></Button>
               </div>
             ))}
           </div>
@@ -115,7 +133,7 @@ function Index() {
 
       <section className="mx-auto max-w-7xl px-6 py-20 text-center">
         <h2 className="text-4xl font-extrabold">Start trading in minutes</h2>
-        <a href="#" className="mt-8 inline-block rounded-md bg-primary px-8 py-4 font-semibold text-primary-foreground">Register now</a>
+        <Button size="lg" className="mt-8" asChild><Link to="/auth" search={{ mode: "up" }}>Register now</Link></Button>
       </section>
 
       <footer className="bg-secondary py-10 text-xs text-secondary-foreground/60">
