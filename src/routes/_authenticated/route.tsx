@@ -29,6 +29,7 @@ function Layout() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
           <Link to="/" className="text-2xl font-extrabold tracking-tight text-primary">vantor</Link>
           <nav className="flex gap-1">
+            <Link to="/accounts" className={link} activeProps={active}>Accounts</Link>
             <Link to="/trade" className={link} activeProps={active}>Trade</Link>
             <Link to="/traders" className={link} activeProps={active}>Traders</Link>
             <Link to="/history" className={link} activeProps={active}>History</Link>
