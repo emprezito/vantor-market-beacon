@@ -30,6 +30,7 @@ function Layout() {
           <Link to="/" className="text-2xl font-extrabold tracking-tight text-primary">vantor</Link>
           <nav className="flex gap-1">
             <Link to="/trade" className={link} activeProps={active}>Trade</Link>
+            <Link to="/traders" className={link} activeProps={active}>Traders</Link>
             <Link to="/history" className={link} activeProps={active}>History</Link>
             <Link to="/wallet" className={link} activeProps={active}>Wallet</Link>
           </nav>
