@@ -109,7 +109,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      apply_demo_operation: {
+        Args: {
+          p_action: string
+          p_expected_balance: number
+          p_expected_positions: string[]
+          p_payload: Json
+          p_user: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

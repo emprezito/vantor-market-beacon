@@ -4,15 +4,16 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
 import { moveFunds } from "@/lib/trading.functions";
-import { useAccount } from "./trade";
+import { useAccount } from "@/hooks/use-account";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/wallet")({
-  head: () => ({ meta: [{ title: "Wallet — Vantor" }, { name: "description", content: "Deposit and withdraw demo funds." }] }),
+  head: () => ({ meta: [{ title: "Wallet — Vantor" }, { name: "description", content: "Manage virtual Vantor funds and review demo transactions." }, { property: "og:title", content: "Wallet — Vantor" }, { property: "og:description", content: "Manage your virtual trading balance." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
   component: Wallet,
 });
 
 function Wallet() {
-  const { data } = useAccount();
+  const { data, isPending, error, refetch } = useAccount();
   const qc = useQueryClient();
   const [amount, setAmount] = useState("1000");
   const fn = useServerFn(moveFunds);
@@ -21,6 +22,8 @@ function Wallet() {
     onSuccess: (_r, kind) => { toast.success(kind === "deposit" ? "Funds added" : "Withdrawal complete"); qc.invalidateQueries({ queryKey: ["account"] }); },
     onError: (e: Error) => toast.error(e.message),
   });
+  if (isPending) return <main className="p-6" role="status">Loading your wallet…</main>;
+  if (error) return <main className="space-y-4 p-6"><p role="alert">{error.message}</p><Button onClick={() => refetch()}>Retry</Button></main>;
   return (
     <main className="mx-auto grid max-w-5xl gap-6 px-6 py-6 md:grid-cols-[320px_1fr]">
       <section className="space-y-4 rounded-xl bg-muted p-6">
@@ -28,10 +31,10 @@ function Wallet() {
           <div className="text-xs text-muted-foreground">Balance</div>
           <div className="text-3xl font-extrabold">${(data?.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
         </div>
-        <input className="w-full rounded-md border border-input bg-background px-3 py-2" type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <input aria-label="Amount in USD" className="w-full rounded-md border border-input bg-background px-3 py-2" type="number" min="1" max="1000000" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         <div className="grid grid-cols-2 gap-2">
-          <button disabled={m.isPending} onClick={() => m.mutate("deposit")} className="rounded-md bg-primary py-2 font-semibold text-primary-foreground">Deposit</button>
-          <button disabled={m.isPending} onClick={() => m.mutate("withdraw")} className="rounded-md border border-input bg-background py-2 font-semibold">Withdraw</button>
+          <Button disabled={m.isPending} onClick={() => m.mutate("deposit")}>Deposit</Button>
+          <Button variant="outline" disabled={m.isPending} onClick={() => m.mutate("withdraw")}>Withdraw</Button>
         </div>
         <p className="text-xs text-muted-foreground">Demo money only — no real payments.</p>
       </section>

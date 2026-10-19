@@ -3,8 +3,10 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: (search: Record<string, unknown>): { mode?: "in" | "up" } => ({ mode: search['mode'] === "up" ? "up" : "in" }),
   head: () => ({
     meta: [
       { title: "Sign in — Vantor" },
@@ -20,34 +22,38 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"in" | "up">("in");
+  const { mode } = Route.useSearch();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => data.session && navigate({ to: "/trade" }));
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => s && navigate({ to: "/trade" }));
-    return () => data.subscription.unsubscribe();
   }, [navigate]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     if (mode === "up") {
-      const { error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin + "/trade" } });
+      const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin + "/auth" } });
       if (error) toast.error(error.message);
+      else if (data.session) navigate({ to: "/trade" });
       else toast.success("Check your email to confirm your account.");
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) toast.error(error.message);
+      else navigate({ to: "/trade" });
     }
     setBusy(false);
   };
 
-  const google = async () => {
-    const r = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin + "/auth" });
+  const social = async (provider: "google" | "lovable") => {
+    const r = await lovable.auth.signInWithOAuth(provider, { redirect_uri: window.location.origin + "/auth" });
     if (r.error) toast.error(r.error.message ?? "Google sign-in failed");
+    else {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) navigate({ to: "/trade" });
+    }
   };
 
   const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
@@ -58,16 +64,15 @@ function AuthPage() {
         <h1 className="mt-6 text-2xl font-bold">{mode === "in" ? "Sign in" : "Open a demo account"}</h1>
         <p className="mt-1 text-sm text-muted-foreground">New accounts start with $10,000 virtual money.</p>
         <form onSubmit={submit} className="mt-6 space-y-3">
-          <input className={input} type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input className={input} type="password" required minLength={6} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <button disabled={busy} className="w-full rounded-md bg-primary py-2 font-semibold text-primary-foreground disabled:opacity-50">
-            {mode === "in" ? "Sign in" : "Create account"}
-          </button>
+          <input className={input} aria-label="Email" autoComplete="email" type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input className={input} aria-label="Password" autoComplete={mode === "in" ? "current-password" : "new-password"} type="password" required minLength={6} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Button disabled={busy} className="w-full">{busy ? "Please wait…" : mode === "in" ? "Sign in" : "Create account"}</Button>
         </form>
-        <button onClick={google} className="mt-3 w-full rounded-md border border-input py-2 text-sm font-semibold">Continue with Google</button>
-        <button onClick={() => setMode(mode === "in" ? "up" : "in")} className="mt-4 w-full text-sm text-muted-foreground">
+        <Button variant="outline" onClick={() => social("google")} className="mt-3 w-full">Continue with Google</Button>
+        <Button variant="outline" onClick={() => social("lovable")} className="mt-3 w-full">Sign in with Lovable</Button>
+        <Button variant="ghost" asChild className="mt-4 w-full text-muted-foreground"><Link to="/auth" search={{ mode: mode === "in" ? "up" : "in" }}>
           {mode === "in" ? "No account? Register" : "Already have an account? Sign in"}
-        </button>
+        </Link></Button>
       </div>
     </div>
   );
