@@ -28,7 +28,7 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => data.session && navigate({ to: "/trade" }));
+    supabase.auth.getSession().then(({ data }) => data.session && navigate({ to: "/accounts" }));
   }, [navigate]);
 
   const submit = async (e: React.FormEvent) => {
@@ -37,12 +37,12 @@ function AuthPage() {
     if (mode === "up") {
       const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin + "/auth" } });
       if (error) toast.error(error.message);
-      else if (data.session) navigate({ to: "/trade" });
+      else if (data.session) navigate({ to: "/accounts" });
       else toast.success("Check your email to confirm your account.");
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) toast.error(error.message);
-      else navigate({ to: "/trade" });
+      else navigate({ to: "/accounts" });
     }
     setBusy(false);
   };
@@ -52,7 +52,7 @@ function AuthPage() {
     if (r.error) toast.error(r.error.message ?? "Google sign-in failed");
     else {
       const { data } = await supabase.auth.getSession();
-      if (data.session) navigate({ to: "/trade" });
+      if (data.session) navigate({ to: "/accounts" });
     }
   };
 

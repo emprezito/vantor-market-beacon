@@ -86,6 +86,48 @@ export type Database = {
         }
         Relationships: []
       }
+      trading_accounts: {
+        Row: {
+          access_role: string | null
+          created_at: string
+          id: string
+          investor_password: string
+          issued_by: string | null
+          kind: string
+          label: string
+          login: number
+          server: string
+          trader_password: string
+          user_id: string | null
+        }
+        Insert: {
+          access_role?: string | null
+          created_at?: string
+          id?: string
+          investor_password: string
+          issued_by?: string | null
+          kind?: string
+          label?: string
+          login: number
+          server?: string
+          trader_password: string
+          user_id?: string | null
+        }
+        Update: {
+          access_role?: string | null
+          created_at?: string
+          id?: string
+          investor_password?: string
+          issued_by?: string | null
+          kind?: string
+          label?: string
+          login?: number
+          server?: string
+          trader_password?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number
