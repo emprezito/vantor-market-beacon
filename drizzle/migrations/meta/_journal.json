@@ -22,6 +22,13 @@
       "when": 1792392229632,
       "tag": "0002_trader_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792392709822,
+      "tag": "0003_trading_accounts",
+      "breakpoints": true
     }
   ]
 }
