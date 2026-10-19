@@ -15,6 +15,13 @@
       "when": 1792390184145,
       "tag": "0001_atomic_demo_trading",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792392229632,
+      "tag": "0002_trader_accounts",
+      "breakpoints": true
     }
   ]
 }
