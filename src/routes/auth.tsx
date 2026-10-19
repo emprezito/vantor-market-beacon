@@ -6,7 +6,7 @@ import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/auth")({
-  validateSearch: (search: Record<string, unknown>): { mode: "in" | "up" } => ({ mode: search.mode === "up" ? "up" : "in" }),
+  validateSearch: (search: Record<string, unknown>): { mode?: "in" | "up" } => ({ mode: search['mode'] === "up" ? "up" : "in" }),
   head: () => ({
     meta: [
       { title: "Sign in — Vantor" },
