@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { validateNewAccount } from "@/lib/account-options";
 
 const SERVER = "Vantor-Demo01";
 
@@ -25,7 +26,7 @@ async function insertAccount(admin: any, fields: Record<string, unknown>) {
         investor_password: genPassword(),
         ...fields,
       })
-      .select("id, login, server, trader_password, investor_password")
+      .select("id, login, label, server, trader_password, investor_password, balance, currency, leverage")
       .single();
     if (!error && data) return data;
     if (error && error.code !== "23505") throw new Error(error.message);
@@ -38,7 +39,7 @@ export const listMyAccounts = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("trading_accounts")
-      .select("id, login, label, kind, server, access_role, created_at")
+      .select("id, login, label, kind, server, access_role, balance, currency, leverage, created_at")
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false });
     if (error) throw new Error("Could not load your accounts");
@@ -47,9 +48,28 @@ export const listMyAccounts = createServerFn({ method: "POST" })
 
 export const openDemoAccount = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator(validateNewAccount)
+  .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const acc = await insertAccount(supabaseAdmin, { user_id: context.userId, access_role: "trader" });
+    const acc = await insertAccount(supabaseAdmin, {
+      user_id: context.userId,
+      access_role: "trader",
+      label: data.accountType,
+      balance: data.balance,
+      currency: data.currency,
+      leverage: data.leverage,
+      trader_password: data.password,
+    });
+    const { error } = await supabaseAdmin.from("transactions").insert({
+      user_id: context.userId,
+      account_id: acc.id,
+      kind: "initial",
+      amount: data.balance,
+    });
+    if (error) {
+      await supabaseAdmin.from("trading_accounts").delete().eq("id", acc.id);
+      throw new Error("Could not open the account. Please try again.");
+    }
     return acc;
   });
 
@@ -82,24 +102,4 @@ export const claimTradingAccount = createServerFn({ method: "POST" })
       if (upError) throw new Error("Could not link the account. Please try again.");
     }
     return { ok: true, role };
-  });
-
-export const issueTradingAccount = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const acc = await insertAccount(supabaseAdmin, { issued_by: context.userId });
-    return acc;
-  });
-
-export const listIssuedAccounts = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
-      .from("trading_accounts")
-      .select("id, login, label, kind, server, user_id, created_at")
-      .eq("issued_by", context.userId)
-      .order("created_at", { ascending: false });
-    if (error) throw new Error("Could not load issued accounts");
-    return data ?? [];
   });

@@ -20,10 +20,10 @@ export function calcPnl(symbol: string, side: Side, lots: number, open: number, 
 }
 
 /** Margin in USD required to hold a position. */
-export function calcMargin(symbol: string, lots: number, price: number) {
+export function calcMargin(symbol: string, lots: number, price: number, leverage: number = LEVERAGE) {
   const i = getInstrument(symbol);
   const notional = i.quoteIsUsd ? lots * i.contract * price : lots * i.contract;
-  return notional / LEVERAGE;
+  return notional / leverage;
 }
 
 /** Returns "sl" | "tp" | null if the current close price triggers a stop. */

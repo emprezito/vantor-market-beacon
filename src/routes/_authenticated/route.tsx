@@ -31,7 +31,6 @@ function Layout() {
           <nav className="flex gap-1">
             <Link to="/accounts" className={link} activeProps={active}>Accounts</Link>
             <Link to="/trade" className={link} activeProps={active}>Trade</Link>
-            <Link to="/traders" className={link} activeProps={active}>Traders</Link>
             <Link to="/history" className={link} activeProps={active}>History</Link>
             <Link to="/wallet" className={link} activeProps={active}>Wallet</Link>
           </nav>

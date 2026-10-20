@@ -11,7 +11,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:apply": "node scripts/apply-schema.mjs",
+    "deploy": "vite build && wrangler deploy",
+    "preview:cloudflare": "vite build && wrangler dev"
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -96,6 +99,7 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "8.1.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.151.1"
   }
 }

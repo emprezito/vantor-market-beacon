@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       positions: {
         Row: {
+          account_id: string | null
           close_price: number | null
           close_reason: string | null
           closed_at: string | null
@@ -31,6 +32,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          account_id?: string | null
           close_price?: number | null
           close_reason?: string | null
           closed_at?: string | null
@@ -46,6 +48,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          account_id?: string | null
           close_price?: number | null
           close_reason?: string | null
           closed_at?: string | null
@@ -89,12 +92,15 @@ export type Database = {
       trading_accounts: {
         Row: {
           access_role: string | null
+          balance: number
           created_at: string
+          currency: string
           id: string
           investor_password: string
           issued_by: string | null
           kind: string
           label: string
+          leverage: number
           login: number
           server: string
           trader_password: string
@@ -102,12 +108,15 @@ export type Database = {
         }
         Insert: {
           access_role?: string | null
+          balance?: number
           created_at?: string
+          currency?: string
           id?: string
           investor_password: string
           issued_by?: string | null
           kind?: string
           label?: string
+          leverage?: number
           login: number
           server?: string
           trader_password: string
@@ -115,12 +124,15 @@ export type Database = {
         }
         Update: {
           access_role?: string | null
+          balance?: number
           created_at?: string
+          currency?: string
           id?: string
           investor_password?: string
           issued_by?: string | null
           kind?: string
           label?: string
+          leverage?: number
           login?: number
           server?: string
           trader_password?: string
@@ -130,6 +142,7 @@ export type Database = {
       }
       transactions: {
         Row: {
+          account_id: string | null
           amount: number
           created_at: string
           id: string
@@ -137,6 +150,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          account_id?: string | null
           amount: number
           created_at?: string
           id?: string
@@ -144,6 +158,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          account_id?: string | null
           amount?: number
           created_at?: string
           id?: string
@@ -177,6 +192,7 @@ export type Database = {
     Functions: {
       apply_demo_operation: {
         Args: {
+          p_account: string
           p_action: string
           p_expected_balance: number
           p_expected_positions: string[]

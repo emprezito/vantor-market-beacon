@@ -15,7 +15,6 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAccountsRouteImport } from './routes/_authenticated/accounts'
 import { Route as AuthenticatedHistoryRouteImport } from './routes/_authenticated/history'
 import { Route as AuthenticatedTradeRouteImport } from './routes/_authenticated/trade'
-import { Route as AuthenticatedTradersRouteImport } from './routes/_authenticated/traders'
 import { Route as AuthenticatedWalletRouteImport } from './routes/_authenticated/wallet'
 
 const IndexRoute = IndexRouteImport.update({
@@ -47,11 +46,6 @@ const AuthenticatedTradeRoute = AuthenticatedTradeRouteImport.update({
   path: '/trade',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedTradersRoute = AuthenticatedTradersRouteImport.update({
-  id: '/traders',
-  path: '/traders',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedWalletRoute = AuthenticatedWalletRouteImport.update({
   id: '/wallet',
   path: '/wallet',
@@ -64,7 +58,6 @@ export interface FileRoutesByFullPath {
   '/accounts': typeof AuthenticatedAccountsRoute
   '/history': typeof AuthenticatedHistoryRoute
   '/trade': typeof AuthenticatedTradeRoute
-  '/traders': typeof AuthenticatedTradersRoute
   '/wallet': typeof AuthenticatedWalletRoute
 }
 export interface FileRoutesByTo {
@@ -73,7 +66,6 @@ export interface FileRoutesByTo {
   '/accounts': typeof AuthenticatedAccountsRoute
   '/history': typeof AuthenticatedHistoryRoute
   '/trade': typeof AuthenticatedTradeRoute
-  '/traders': typeof AuthenticatedTradersRoute
   '/wallet': typeof AuthenticatedWalletRoute
 }
 export interface FileRoutesById {
@@ -84,16 +76,13 @@ export interface FileRoutesById {
   '/_authenticated/accounts': typeof AuthenticatedAccountsRoute
   '/_authenticated/history': typeof AuthenticatedHistoryRoute
   '/_authenticated/trade': typeof AuthenticatedTradeRoute
-  '/_authenticated/traders': typeof AuthenticatedTradersRoute
   '/_authenticated/wallet': typeof AuthenticatedWalletRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    '/' | '/auth' | '/accounts' | '/history' | '/trade' | '/traders' | '/wallet'
+  fullPaths: '/' | '/auth' | '/accounts' | '/history' | '/trade' | '/wallet'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    '/' | '/auth' | '/accounts' | '/history' | '/trade' | '/traders' | '/wallet'
+  to: '/' | '/auth' | '/accounts' | '/history' | '/trade' | '/wallet'
   id:
     | '__root__'
     | '/'
@@ -102,7 +91,6 @@ export interface FileRouteTypes {
     | '/_authenticated/accounts'
     | '/_authenticated/history'
     | '/_authenticated/trade'
-    | '/_authenticated/traders'
     | '/_authenticated/wallet'
   fileRoutesById: FileRoutesById
 }
@@ -156,13 +144,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTradeRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/traders': {
-      id: '/_authenticated/traders'
-      path: '/traders'
-      fullPath: '/traders'
-      preLoaderRoute: typeof AuthenticatedTradersRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/wallet': {
       id: '/_authenticated/wallet'
       path: '/wallet'
@@ -177,7 +158,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountsRoute: typeof AuthenticatedAccountsRoute
   AuthenticatedHistoryRoute: typeof AuthenticatedHistoryRoute
   AuthenticatedTradeRoute: typeof AuthenticatedTradeRoute
-  AuthenticatedTradersRoute: typeof AuthenticatedTradersRoute
   AuthenticatedWalletRoute: typeof AuthenticatedWalletRoute
 }
 
@@ -185,7 +165,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountsRoute: AuthenticatedAccountsRoute,
   AuthenticatedHistoryRoute: AuthenticatedHistoryRoute,
   AuthenticatedTradeRoute: AuthenticatedTradeRoute,
-  AuthenticatedTradersRoute: AuthenticatedTradersRoute,
   AuthenticatedWalletRoute: AuthenticatedWalletRoute,
 }
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "vantor-market-beacon",
+  "compatibility_date": "2026-10-19",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "SUPABASE_URL": "https://bfzizzfyxrjtautzvofu.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_nPA9ZdfeACIrVGRAgGvo7Q_SRf4G4ld",
+    "SUPABASE_PROJECT_ID": "bfzizzfyxrjtautzvofu"
+  }
+}
