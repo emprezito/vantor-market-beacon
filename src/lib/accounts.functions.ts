@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { validateNewAccount } from "@/lib/account-options";
 
-const SERVER = "Vantor-Demo01";
+const SERVER = "Vantor-server 1";
 
 function genPassword(len = 10) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
@@ -26,7 +26,7 @@ async function insertAccount(admin: any, fields: Record<string, unknown>) {
         investor_password: genPassword(),
         ...fields,
       })
-      .select("id, login, label, server, trader_password, investor_password, balance, currency, leverage")
+      .select("id, login, nickname, label, server, trader_password, investor_password, balance, currency, leverage")
       .single();
     if (!error && data) return data;
     if (error && error.code !== "23505") throw new Error(error.message);
@@ -39,7 +39,7 @@ export const listMyAccounts = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("trading_accounts")
-      .select("id, login, label, kind, server, access_role, balance, currency, leverage, created_at")
+      .select("id, login, nickname, label, kind, server, access_role, balance, currency, leverage, created_at")
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false });
     if (error) throw new Error("Could not load your accounts");
@@ -54,6 +54,7 @@ export const openDemoAccount = createServerFn({ method: "POST" })
     const acc = await insertAccount(supabaseAdmin, {
       user_id: context.userId,
       access_role: "trader",
+      nickname: data.nickname,
       label: data.accountType,
       balance: data.balance,
       currency: data.currency,

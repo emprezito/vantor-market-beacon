@@ -25,7 +25,7 @@ export const Route = createFileRoute("/_authenticated/accounts")({
   head: () => ({
     meta: [
       { title: "My accounts — Vantor" },
-      { name: "description", content: "Open and manage your Vantor demo trading accounts." },
+      { name: "description", content: "Open and manage your Vantor trading accounts." },
     ],
   }),
 });
@@ -42,7 +42,6 @@ function AccountsPage() {
   const [, setActiveAccount] = useActiveAccount();
   const { data, isLoading } = useQuery({ queryKey: ["my-accounts"], queryFn: () => list() });
 
-  const [tab, setTab] = useState<"demo" | "real">("demo");
   const [openPanel, setOpenPanel] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [balanceFor, setBalanceFor] = useState<string | null>(null);
@@ -50,6 +49,7 @@ function AccountsPage() {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [server, setServer] = useState("");
+  const [nickname, setNickname] = useState("");
   const [accountType, setAccountType] = useState<string>(DEFAULT_ACCOUNT_TYPE);
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
   const [leverage, setLeverage] = useState<number>(DEFAULT_LEVERAGE);
@@ -57,13 +57,14 @@ function AccountsPage() {
   const [traderPass, setTraderPass] = useState("");
 
   const openMut = useMutation({
-    mutationFn: () => openDemo({ data: { accountType, currency, leverage, balance: Number(size), password: traderPass } }),
+    mutationFn: () => openDemo({ data: { nickname, accountType, currency, leverage, balance: Number(size), password: traderPass } }),
     onSuccess: (acc) => {
       qc.invalidateQueries({ queryKey: ["my-accounts"] });
       setActiveAccount(acc.id);
       setOpenPanel(false);
+      setNickname("");
       setTraderPass("");
-      toast.success(`Demo account #${acc.login} created. Trader password: ${acc.trader_password} — investor password: ${acc.investor_password} — server: ${acc.server}`);
+      toast.success(`Account "${acc.nickname}" (#${acc.login}) created. Trader password: ${acc.trader_password} — investor password: ${acc.investor_password} — server: ${acc.server}`);
     },
     onError: (e) => toast.error(e.message),
   });
@@ -92,24 +93,28 @@ function AccountsPage() {
     onError: (e) => toast.error(e.message),
   });
 
-  const accounts = (data ?? []).filter((a) => a.kind === tab);
+  const accounts = data ?? [];
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-extrabold tracking-tight">My accounts</h1>
+    <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">My accounts</h1>
         <Button variant="outline" onClick={() => setOpenPanel((v) => !v)}>+ Open account</Button>
       </div>
 
       {openPanel && (
-        <section className="mt-4 grid gap-4 rounded-lg border bg-card p-5 lg:grid-cols-[1.3fr_1fr]">
+        <section className="mt-4 grid gap-4 rounded-lg border bg-card p-4 sm:p-5 lg:grid-cols-[1.3fr_1fr]">
           <div className="rounded-md border p-4">
-            <h3 className="font-bold">Demo account</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Virtual money, instant setup, MT5-style login and passwords.</p>
+            <h3 className="font-bold">Trading account</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Instant setup with MT5-style login and passwords.</p>
             <form
               className="mt-3 grid gap-3 sm:grid-cols-2"
               onSubmit={(e) => { e.preventDefault(); openMut.mutate(); }}
             >
+              <div className="sm:col-span-2">
+                <Label htmlFor="anick">Nickname</Label>
+                <Input id="anick" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="e.g. Scalping account" maxLength={24} required />
+              </div>
               <div>
                 <Label htmlFor="atype">Account type</Label>
                 <select id="atype" className={inputCls} value={accountType} onChange={(e) => setAccountType(e.target.value)}>
@@ -138,7 +143,7 @@ function AccountsPage() {
               </div>
               <div className="sm:col-span-2">
                 <Button type="submit" disabled={openMut.isPending}>
-                  {openMut.isPending ? "Creating…" : "Create demo account"}
+                  {openMut.isPending ? "Creating…" : "Create account"}
                 </Button>
                 <p className="mt-2 text-xs text-muted-foreground">An investor password is generated automatically after creation.</p>
               </div>
@@ -160,7 +165,7 @@ function AccountsPage() {
               </div>
               <div>
                 <Label htmlFor="srv">Server</Label>
-                <Input id="srv" value={server} onChange={(e) => setServer(e.target.value)} placeholder="e.g. Vantor-Demo01" />
+                <Input id="srv" value={server} onChange={(e) => setServer(e.target.value)} placeholder="e.g. Vantor-server 1" />
               </div>
               <Button type="submit" disabled={claimMut.isPending}>{claimMut.isPending ? "Linking…" : "Log in"}</Button>
             </form>
@@ -168,23 +173,9 @@ function AccountsPage() {
         </section>
       )}
 
-      <div className="mt-6 inline-flex overflow-hidden rounded-md border">
-        {(["real", "demo"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-5 py-1.5 text-sm capitalize transition-colors ${tab === t ? "bg-primary/15 font-semibold" : "opacity-70 hover:bg-muted"}`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
       {isLoading && <p className="mt-6 text-sm opacity-75">Loading…</p>}
       {!isLoading && accounts.length === 0 && (
-        <p className="mt-6 text-sm opacity-75">
-          {tab === "real" ? "Real accounts are not available on this demo platform." : "No demo accounts yet — open one above."}
-        </p>
+        <p className="mt-6 text-sm opacity-75">No accounts yet — open one above.</p>
       )}
 
       <div className="mt-4 space-y-4">
@@ -192,9 +183,9 @@ function AccountsPage() {
           const isOpen = expanded === a.id;
           const readOnly = a.access_role === "investor";
           return (
-            <article key={a.id} className="rounded-lg border bg-card p-5">
+            <article key={a.id} className="rounded-lg border bg-card p-4 sm:p-5">
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="rounded bg-primary/15 px-2 py-0.5 font-medium text-foreground capitalize">{a.kind}</span>
+                <span className="text-base font-bold">{a.nickname}</span>
                 <span className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground">MT5</span>
                 <span className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground">{a.label}</span>
                 <span className="font-mono font-semibold"># {a.login}</span>
@@ -204,20 +195,20 @@ function AccountsPage() {
                 </button>
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-3xl font-extrabold tracking-tight">
+                <p className="break-words text-2xl font-extrabold tracking-tight sm:text-3xl">
                   {formatMoney(Number(a.balance), a.currency)} <span className="text-base font-normal opacity-60">{a.currency}</span>
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button onClick={() => { setActiveAccount(a.id); navigate({ to: "/trade" }); }} disabled={readOnly}>Trade</Button>
                   <Button variant="outline" onClick={() => setBalanceFor(balanceFor === a.id ? null : a.id)} disabled={readOnly}>Set Balance</Button>
                 </div>
               </div>
               {balanceFor === a.id && (
                 <form
-                  className="mt-3 flex items-end gap-2"
+                  className="mt-3 flex flex-col items-stretch gap-2 sm:flex-row sm:items-end"
                   onSubmit={(e) => { e.preventDefault(); balanceMut.mutate({ account: a, target: Number(newBalance) }); }}
                 >
-                  <div>
+                  <div className="w-full">
                     <Label htmlFor={`bal-${a.id}`}>New balance ({a.currency})</Label>
                     <Input id={`bal-${a.id}`} inputMode="decimal" value={newBalance} onChange={(e) => setNewBalance(e.target.value)} placeholder="e.g. 50000" />
                   </div>

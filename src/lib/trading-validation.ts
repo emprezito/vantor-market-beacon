@@ -2,6 +2,7 @@ import { INSTRUMENTS } from "./market";
 import type { Side } from "./trading";
 
 export type OrderInput = { symbol: string; side: Side; lots: number; stopLoss: number | null; takeProfit: number | null };
+export type LimitOrderInput = OrderInput & { limitPrice: number };
 export function validateOrder(i: OrderInput) {
   if (!INSTRUMENTS.some((x) => x.symbol === i.symbol)) throw new Error("Unknown instrument");
   if (i.side !== "buy" && i.side !== "sell") throw new Error("Invalid side");
@@ -10,6 +11,11 @@ export function validateOrder(i: OrderInput) {
     if (price != null && (!Number.isFinite(price) || price <= 0)) throw new Error("Stop prices must be positive, finite numbers");
   }
   return i;
+}
+export function validateLimitOrder(i: LimitOrderInput) {
+  const order = validateOrder(i);
+  if (!Number.isFinite(i.limitPrice) || i.limitPrice <= 0) throw new Error("Limit price must be a positive, finite number");
+  return { ...order, limitPrice: i.limitPrice };
 }
 export function validateFunds(i: { kind: "deposit" | "withdraw"; amount: number }) {
   if (i.kind !== "deposit" && i.kind !== "withdraw") throw new Error("Invalid transaction");

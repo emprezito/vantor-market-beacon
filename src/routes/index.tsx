@@ -54,14 +54,14 @@ function Index() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-10 bg-secondary text-secondary-foreground">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6 sm:py-4">
           <span className="text-2xl font-extrabold tracking-tight text-primary">vantor</span>
-          <nav className="hidden gap-8 text-sm md:flex">
-            <Link to="/trade" className="opacity-80 hover:opacity-100">Trading</Link>
-            <Link to="/history" className="opacity-80 hover:opacity-100">History</Link>
-            <Link to="/wallet" className="opacity-80 hover:opacity-100">Wallet</Link>
+          <nav className="order-3 flex w-full gap-5 overflow-x-auto text-sm md:order-none md:w-auto md:gap-8">
+            <Link to="/trade" className="whitespace-nowrap opacity-80 hover:opacity-100">Trading</Link>
+            <Link to="/history" className="whitespace-nowrap opacity-80 hover:opacity-100">History</Link>
+            <Link to="/wallet" className="whitespace-nowrap opacity-80 hover:opacity-100">Wallet</Link>
           </nav>
-          <div className="flex gap-3 text-sm">
+          <div className="ml-auto flex gap-2 text-sm sm:gap-3">
             {session ? <>
               <Button variant="ghost" onClick={signOut}>Sign out</Button>
               <Button asChild><Link to="/trade">Trade</Link></Button>
@@ -74,20 +74,20 @@ function Index() {
       </header>
 
       <section className="bg-secondary text-secondary-foreground">
-        <div className="mx-auto grid max-w-7xl gap-12 px-6 py-24 md:grid-cols-2 md:items-center">
+        <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 sm:py-20 md:grid-cols-2 md:items-center md:gap-12 md:py-24">
           <div>
-            <h1 className="text-5xl font-extrabold leading-tight md:text-6xl">
+            <h1 className="text-4xl font-extrabold leading-tight sm:text-5xl md:text-6xl">
               Trade with a <span className="text-primary">trusted</span> broker
             </h1>
-            <p className="mt-6 max-w-md text-lg opacity-75">
+            <p className="mt-5 max-w-md text-base opacity-75 sm:mt-6 sm:text-lg">
               Better-than-market conditions, instant withdrawals and execution in milliseconds.
             </p>
-            <div className="mt-8 flex gap-4">
+            <div className="mt-7 flex flex-col gap-3 sm:mt-8 sm:flex-row sm:gap-4">
               <Button size="lg" asChild><Link to="/auth" search={{ mode: "up" }}>Open account</Link></Button>
-              <Button size="lg" variant="ghost" className="border border-secondary-foreground/30" asChild><Link to={session ? "/trade" : "/auth"} search={{ mode: "up" }}>Try free demo</Link></Button>
+              <Button size="lg" variant="ghost" className="border border-secondary-foreground/30" asChild><Link to={session ? "/trade" : "/auth"} search={{ mode: "up" }}>Start trading</Link></Button>
             </div>
           </div>
-          <div className="rounded-2xl border border-secondary-foreground/10 bg-secondary-foreground/5 p-6">
+          <div className="rounded-2xl border border-secondary-foreground/10 bg-secondary-foreground/5 p-4 sm:p-6">
             {quotes.map(([s, p, c]) => (
               <div key={s} className="flex justify-between border-b border-secondary-foreground/10 py-3 last:border-0">
                 <span className="font-semibold">{s}</span>
@@ -99,11 +99,11 @@ function Index() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-6 py-20">
-        <h2 className="text-4xl font-extrabold">Why traders choose us</h2>
-        <div className="mt-10 grid gap-6 md:grid-cols-4">
+      <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-20">
+        <h2 className="text-3xl font-extrabold sm:text-4xl">Why traders choose us</h2>
+        <div className="mt-8 grid gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 md:grid-cols-4">
           {features.map(([t, d]) => (
-            <div key={t} className="rounded-xl bg-muted p-6">
+            <div key={t} className="rounded-xl bg-muted p-5 sm:p-6">
               <div className="mb-4 h-1 w-10 bg-primary" />
               <h3 className="text-lg font-bold">{t}</h3>
               <p className="mt-2 text-sm text-muted-foreground">{d}</p>
@@ -112,17 +112,17 @@ function Index() {
         </div>
       </section>
 
-      <section className="bg-muted py-20">
-        <div className="mx-auto max-w-7xl px-6">
-          <h2 className="text-4xl font-extrabold">Account types</h2>
-          <div className="mt-10 grid gap-6 md:grid-cols-4">
+      <section className="bg-muted py-14 sm:py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <h2 className="text-3xl font-extrabold sm:text-4xl">Account types</h2>
+          <div className="mt-8 grid gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 md:grid-cols-4">
             {accounts.map(([n, dep, sp, com]) => (
-              <div key={n} className="rounded-xl bg-background p-6 shadow-sm">
+              <div key={n} className="rounded-xl bg-background p-5 shadow-sm sm:p-6">
                 <h3 className="text-xl font-bold">{n}</h3>
                 <dl className="mt-4 space-y-2 text-sm">
-                  <div className="flex justify-between"><dt className="text-muted-foreground">Min deposit</dt><dd>{dep}</dd></div>
-                  <div className="flex justify-between"><dt className="text-muted-foreground">Spread</dt><dd>{sp}</dd></div>
-                  <div className="flex justify-between"><dt className="text-muted-foreground">Commission</dt><dd>{com}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Min deposit</dt><dd>{dep}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Spread</dt><dd>{sp}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Commission</dt><dd>{com}</dd></div>
                 </dl>
                 <Button className="mt-6 w-full" asChild><Link to="/auth" search={{ mode: "up" }}>Open account</Link></Button>
               </div>
@@ -131,13 +131,13 @@ function Index() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-6 py-20 text-center">
-        <h2 className="text-4xl font-extrabold">Start trading in minutes</h2>
+      <section className="mx-auto max-w-7xl px-4 py-14 text-center sm:px-6 sm:py-20">
+        <h2 className="text-3xl font-extrabold sm:text-4xl">Start trading in minutes</h2>
         <Button size="lg" className="mt-8" asChild><Link to="/auth" search={{ mode: "up" }}>Register now</Link></Button>
       </section>
 
-      <footer className="bg-secondary py-10 text-xs text-secondary-foreground/60">
-        <div className="mx-auto max-w-7xl px-6">
+      <footer className="bg-secondary py-8 text-xs text-secondary-foreground/60 sm:py-10">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
           Risk warning: Trading leveraged products carries a high level of risk and may not be suitable for all investors. © 2026 Vantor.
         </div>
       </footer>

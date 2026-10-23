@@ -2,8 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { calcMargin, calcPnl, closePrice, openPrice, stopHit, type Side } from "./trading";
-import { validateOrder, validateFunds } from "./trading-validation";
+import { calcMargin, calcPnl, closePrice, limitHit, openPrice, stopHit, type Side } from "./trading";
+import { validateOrder, validateFunds, validateLimitOrder, type LimitOrderInput } from "./trading-validation";
+import { quote } from "./market";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -16,7 +17,7 @@ async function snapshot(db: SupabaseClient<Database>, userId: string, accountId:
   const [account, positions] = await Promise.all([
     db
       .from("trading_accounts")
-      .select("id, login, label, server, currency, leverage, access_role, balance")
+      .select("id, login, nickname, label, server, currency, leverage, access_role, balance")
       .eq("id", accountId)
       .eq("user_id", userId)
       .maybeSingle(),
@@ -56,6 +57,30 @@ async function closeOne(db: SupabaseClient<Database>, userId: string, accountId:
   await apply(userId, state, "close", { id, price, pnl, reason });
 }
 
+async function fillDueLimitOrders(db: SupabaseClient<Database>, userId: string, accountId: string) {
+  const { data: orders, error } = await db
+    .from("pending_orders")
+    .select("*")
+    .eq("account_id", accountId)
+    .eq("status", "pending")
+    .order("created_at");
+  if (error) throw new Error("Could not load pending orders. Please try again.");
+
+  for (const order of orders ?? []) {
+    const now = Date.now();
+    const price = Number(order.limit_price);
+    if (!limitHit(order.side as Side, quote(order.symbol, now), price)) continue;
+
+    const state = await snapshot(db, userId, accountId);
+    const leverage = Number(state.account.leverage) || 100;
+    const { used, floating } = exposure(state, now, leverage);
+    const margin = calcMargin(order.symbol, Number(order.lots), price, leverage);
+    if (margin > state.balance + floating - used) continue;
+
+    await apply(userId, state, "fill_limit", { id: order.id, price, margin, used, floating });
+  }
+}
+
 async function requireTradable(db: SupabaseClient<Database>, userId: string, accountId: string) {
   const state = await snapshot(db, userId, accountId);
   if (state.account.access_role === "investor") throw new Error("This is an investor (read-only) account");
@@ -73,16 +98,19 @@ export const getAccount = createServerFn({ method: "POST" })
       const hit = stopHit(p.side as Side, closePrice(p.symbol, p.side as Side, now), p.stop_loss == null ? null : Number(p.stop_loss), p.take_profit == null ? null : Number(p.take_profit));
       if (hit) await closeOne(supabase, userId, data.accountId, p.id, hit === "sl" ? "Stop loss" : "Take profit");
     }
-    const [state, closed, tx] = await Promise.all([
+    await fillDueLimitOrders(supabase, userId, data.accountId);
+    const [state, closed, tx, pending] = await Promise.all([
       snapshot(supabase, userId, data.accountId),
       supabase.from("positions").select("*").eq("account_id", data.accountId).not("closed_at", "is", null).order("closed_at", { ascending: false }).limit(100),
       supabase.from("transactions").select("*").eq("account_id", data.accountId).order("created_at", { ascending: false }).limit(100),
+      supabase.from("pending_orders").select("*").eq("account_id", data.accountId).eq("status", "pending").order("created_at"),
     ]);
-    if (closed.error || tx.error) throw new Error("Could not load account activity. Please try again.");
+    if (closed.error || tx.error || pending.error) throw new Error("Could not load account activity. Please try again.");
     return {
       account: {
         id: state.account.id,
         login: state.account.login,
+        nickname: state.account.nickname,
         label: state.account.label,
         server: state.account.server,
         currency: state.account.currency,
@@ -91,6 +119,7 @@ export const getAccount = createServerFn({ method: "POST" })
       },
       balance: state.balance,
       open: state.positions,
+      pending: pending.data ?? [],
       closed: closed.data ?? [],
       transactions: tx.data ?? [],
     };
@@ -113,6 +142,33 @@ export const openTrade = createServerFn({ method: "POST" })
     if (margin > state.balance + floating - used) throw new Error("Not enough free margin");
     await apply(context.userId, state, "open", { ...order, price, margin, used, floating });
     return { price };
+  });
+
+export const placeLimitOrder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: LimitOrderInput & { accountId: string }) => ({ ...validateLimitOrder(i), ...validateAccountId(i) }))
+  .handler(async ({ data, context }) => {
+    const { accountId, ...order } = data;
+    const state = await requireTradable(context.supabase, context.userId, accountId);
+    const q = quote(order.symbol, Date.now());
+    if (order.side === "buy" && order.limitPrice >= q.ask) throw new Error("Buy limit price must be below the current ask");
+    if (order.side === "sell" && order.limitPrice <= q.bid) throw new Error("Sell limit price must be above the current bid");
+    if (order.stopLoss != null && stopHit(order.side, order.limitPrice, order.stopLoss, null)) throw new Error("Stop loss is on the wrong side of the limit price");
+    if (order.takeProfit != null && stopHit(order.side, order.limitPrice, null, order.takeProfit)) throw new Error("Take profit is on the wrong side of the limit price");
+    await apply(context.userId, state, "place_limit", { ...order });
+    return { ok: true };
+  });
+
+export const cancelPendingOrder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: { accountId: string; id: string }) => {
+    if (typeof i.id !== "string" || !/^[0-9a-f-]{36}$/i.test(i.id)) throw new Error("Invalid pending order");
+    return { id: i.id, ...validateAccountId(i) };
+  })
+  .handler(async ({ data, context }) => {
+    const state = await requireTradable(context.supabase, context.userId, data.accountId);
+    await apply(context.userId, state, "cancel_limit", { id: data.id });
+    return { ok: true };
   });
 
 export const closeTrade = createServerFn({ method: "POST" })

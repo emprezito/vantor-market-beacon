@@ -5,7 +5,7 @@ import { formatMoney } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/history")({
-  head: () => ({ meta: [{ title: "Trade history — Vantor" }, { name: "description", content: "Your closed Vantor demo trades and realised profit or loss." }, { property: "og:title", content: "Trade history — Vantor" }, { property: "og:description", content: "Review your demo trading activity." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
+  head: () => ({ meta: [{ title: "Trade history — Vantor" }, { name: "description", content: "Your closed Vantor trades and realised profit or loss." }, { property: "og:title", content: "Trade history — Vantor" }, { property: "og:description", content: "Review your trading activity." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
   component: History,
 });
 
@@ -14,24 +14,24 @@ function History() {
   const navigate = useNavigate();
   const rows = data?.closed ?? [];
   const total = rows.reduce((s, r) => s + Number(r.pnl ?? 0), 0);
-  if (isPending) return <main className="p-6" role="status">Loading trade history…</main>;
-  if (error) return <main className="space-y-4 p-6"><p role="alert">{error.message}</p><Button onClick={() => refetch()}>Retry</Button></main>;
+  if (isPending) return <main className="px-4 py-6 sm:px-6" role="status">Loading trade history…</main>;
+  if (error) return <main className="space-y-4 px-4 py-6 sm:px-6"><p role="alert">{error.message}</p><Button onClick={() => refetch()}>Retry</Button></main>;
   if (!activeAccount) {
     return (
-      <main className="space-y-4 p-6">
+      <main className="space-y-4 px-4 py-6 sm:px-6">
         <h1 className="text-2xl font-bold">Trade history</h1>
-        <p>Open a demo account to review its trade history.</p>
+        <p>Open a trading account to review its trade history.</p>
         <Button onClick={() => navigate({ to: "/accounts" })}>Open an account</Button>
       </main>
     );
   }
   const currency = activeAccount.currency;
   return (
-    <main className="mx-auto max-w-7xl px-6 py-6">
-      <h1 className="text-2xl font-bold">Trade history <span className="text-sm font-normal text-muted-foreground">· #{activeAccount.login}</span></h1>
+    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+      <h1 className="text-2xl font-bold">Trade history <span className="block text-sm font-normal text-muted-foreground sm:inline">· {activeAccount.nickname} · #{activeAccount.login}</span></h1>
       <p className="text-sm text-muted-foreground">Total realised P/L: <span className={total >= 0 ? "text-accent" : "text-destructive"}>{formatMoney(total, currency)}</span></p>
       <div className="mt-4 overflow-x-auto rounded-xl border">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[800px] text-sm">
           <thead className="text-left text-xs text-muted-foreground">
             <tr>{["Closed", "Symbol", "Type", "Lots", "Open", "Close", "Reason", "P/L"].map((h) => <th key={h} className="px-4 py-2">{h}</th>)}</tr>
           </thead>

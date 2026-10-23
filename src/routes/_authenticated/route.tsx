@@ -1,6 +1,8 @@
-import { createFileRoute, redirect, Outlet, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, Outlet, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAccount } from "@/hooks/use-account";
+import { DesktopSidebar, MobileBottomNav, MobileHeader } from "@/components/app-nav";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -15,30 +17,33 @@ export const Route = createFileRoute("/_authenticated")({
 function Layout() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { accounts, activeAccount, setActiveAccount } = useAccount();
   const signOut = async () => {
     await qc.cancelQueries();
     qc.clear();
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
   };
-  const link = "px-3 py-2 rounded-md text-sm opacity-75 hover:opacity-100";
-  const active = { className: "px-3 py-2 rounded-md text-sm bg-secondary-foreground/10 text-primary" };
+  const selectAccount = (id: string) => setActiveAccount(id);
+
   return (
-    <div className="min-h-screen bg-background">
-      <header className="bg-secondary text-secondary-foreground">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-          <Link to="/" className="text-2xl font-extrabold tracking-tight text-primary">vantor</Link>
-          <nav className="flex gap-1">
-            <Link to="/accounts" className={link} activeProps={active}>Accounts</Link>
-            <Link to="/trade" className={link} activeProps={active}>Trade</Link>
-            <Link to="/history" className={link} activeProps={active}>History</Link>
-            <Link to="/wallet" className={link} activeProps={active}>Wallet</Link>
-          </nav>
-          <button onClick={signOut} className="text-sm opacity-75 hover:opacity-100">Sign out</button>
-        </div>
-      </header>
-      <div className="bg-primary/20 py-1 text-center text-xs text-foreground">Demo account — virtual money only</div>
-      <Outlet />
+    <div className="min-h-screen bg-background lg:pl-64">
+      <DesktopSidebar
+        accounts={accounts}
+        activeAccount={activeAccount}
+        onSelect={selectAccount}
+        onSignOut={signOut}
+      />
+      <MobileHeader
+        accounts={accounts}
+        activeAccount={activeAccount}
+        onSelect={selectAccount}
+        onSignOut={signOut}
+      />
+      <div className="pb-20 lg:pb-0">
+        <Outlet />
+      </div>
+      <MobileBottomNav />
     </div>
   );
 }

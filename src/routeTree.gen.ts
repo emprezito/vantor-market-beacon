@@ -14,6 +14,8 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAccountsRouteImport } from './routes/_authenticated/accounts'
 import { Route as AuthenticatedHistoryRouteImport } from './routes/_authenticated/history'
+import { Route as AuthenticatedOrdersRouteImport } from './routes/_authenticated/orders'
+import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
 import { Route as AuthenticatedTradeRouteImport } from './routes/_authenticated/trade'
 import { Route as AuthenticatedWalletRouteImport } from './routes/_authenticated/wallet'
 
@@ -41,6 +43,16 @@ const AuthenticatedHistoryRoute = AuthenticatedHistoryRouteImport.update({
   path: '/history',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedOrdersRoute = AuthenticatedOrdersRouteImport.update({
+  id: '/orders',
+  path: '/orders',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedTradeRoute = AuthenticatedTradeRouteImport.update({
   id: '/trade',
   path: '/trade',
@@ -57,6 +69,8 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/accounts': typeof AuthenticatedAccountsRoute
   '/history': typeof AuthenticatedHistoryRoute
+  '/orders': typeof AuthenticatedOrdersRoute
+  '/profile': typeof AuthenticatedProfileRoute
   '/trade': typeof AuthenticatedTradeRoute
   '/wallet': typeof AuthenticatedWalletRoute
 }
@@ -65,6 +79,8 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/accounts': typeof AuthenticatedAccountsRoute
   '/history': typeof AuthenticatedHistoryRoute
+  '/orders': typeof AuthenticatedOrdersRoute
+  '/profile': typeof AuthenticatedProfileRoute
   '/trade': typeof AuthenticatedTradeRoute
   '/wallet': typeof AuthenticatedWalletRoute
 }
@@ -75,14 +91,32 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/accounts': typeof AuthenticatedAccountsRoute
   '/_authenticated/history': typeof AuthenticatedHistoryRoute
+  '/_authenticated/orders': typeof AuthenticatedOrdersRoute
+  '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/trade': typeof AuthenticatedTradeRoute
   '/_authenticated/wallet': typeof AuthenticatedWalletRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/accounts' | '/history' | '/trade' | '/wallet'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/accounts'
+    | '/history'
+    | '/orders'
+    | '/profile'
+    | '/trade'
+    | '/wallet'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/accounts' | '/history' | '/trade' | '/wallet'
+  to:
+    | '/'
+    | '/auth'
+    | '/accounts'
+    | '/history'
+    | '/orders'
+    | '/profile'
+    | '/trade'
+    | '/wallet'
   id:
     | '__root__'
     | '/'
@@ -90,6 +124,8 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/accounts'
     | '/_authenticated/history'
+    | '/_authenticated/orders'
+    | '/_authenticated/profile'
     | '/_authenticated/trade'
     | '/_authenticated/wallet'
   fileRoutesById: FileRoutesById
@@ -137,6 +173,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHistoryRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/orders': {
+      id: '/_authenticated/orders'
+      path: '/orders'
+      fullPath: '/orders'
+      preLoaderRoute: typeof AuthenticatedOrdersRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/profile': {
+      id: '/_authenticated/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof AuthenticatedProfileRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/trade': {
       id: '/_authenticated/trade'
       path: '/trade'
@@ -157,6 +207,8 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountsRoute: typeof AuthenticatedAccountsRoute
   AuthenticatedHistoryRoute: typeof AuthenticatedHistoryRoute
+  AuthenticatedOrdersRoute: typeof AuthenticatedOrdersRoute
+  AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedTradeRoute: typeof AuthenticatedTradeRoute
   AuthenticatedWalletRoute: typeof AuthenticatedWalletRoute
 }
@@ -164,6 +216,8 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountsRoute: AuthenticatedAccountsRoute,
   AuthenticatedHistoryRoute: AuthenticatedHistoryRoute,
+  AuthenticatedOrdersRoute: AuthenticatedOrdersRoute,
+  AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedTradeRoute: AuthenticatedTradeRoute,
   AuthenticatedWalletRoute: AuthenticatedWalletRoute,
 }

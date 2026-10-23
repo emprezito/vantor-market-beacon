@@ -65,6 +65,57 @@ export type Database = {
         }
         Relationships: []
       }
+      pending_orders: {
+        Row: {
+          account_id: string
+          cancelled_at: string | null
+          created_at: string
+          id: string
+          limit_price: number
+          lots: number
+          position_id: string | null
+          side: string
+          status: string
+          stop_loss: number | null
+          symbol: string
+          take_profit: number | null
+          triggered_at: string | null
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          cancelled_at?: string | null
+          created_at?: string
+          id?: string
+          limit_price: number
+          lots: number
+          position_id?: string | null
+          side: string
+          status?: string
+          stop_loss?: number | null
+          symbol: string
+          take_profit?: number | null
+          triggered_at?: string | null
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          cancelled_at?: string | null
+          created_at?: string
+          id?: string
+          limit_price?: number
+          lots?: number
+          position_id?: string | null
+          side?: string
+          status?: string
+          stop_loss?: number | null
+          symbol?: string
+          take_profit?: number | null
+          triggered_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       trader_accounts: {
         Row: {
           created_at: string
@@ -102,6 +153,7 @@ export type Database = {
           label: string
           leverage: number
           login: number
+          nickname: string
           server: string
           trader_password: string
           user_id: string | null
@@ -118,6 +170,7 @@ export type Database = {
           label?: string
           leverage?: number
           login: number
+          nickname?: string
           server?: string
           trader_password: string
           user_id?: string | null
@@ -134,6 +187,7 @@ export type Database = {
           label?: string
           leverage?: number
           login?: number
+          nickname?: string
           server?: string
           trader_password?: string
           user_id?: string | null

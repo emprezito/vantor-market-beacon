@@ -8,8 +8,10 @@ export const DEFAULT_LEVERAGE = 100;
 export const DEFAULT_BALANCE = 10000;
 export const BALANCE_MIN = 100;
 export const BALANCE_MAX = 1000000;
+export const NICKNAME_MAX = 24;
 
 export type NewAccountInput = {
+  nickname: string;
   accountType: string;
   currency: string;
   leverage: number;
@@ -18,6 +20,8 @@ export type NewAccountInput = {
 };
 
 export function validateNewAccount(i: NewAccountInput) {
+  const nickname = typeof i.nickname === "string" ? i.nickname.trim() : "";
+  if (nickname.length < 1 || nickname.length > NICKNAME_MAX) throw new Error(`Nickname must be 1–${NICKNAME_MAX} characters`);
   if (!(ACCOUNT_TYPES as readonly string[]).includes(i.accountType)) throw new Error("Choose a valid account type");
   if (!(CURRENCIES as readonly string[]).includes(i.currency)) throw new Error("Choose a valid currency");
   const leverage = Number(i.leverage);
@@ -27,7 +31,7 @@ export function validateNewAccount(i: NewAccountInput) {
     throw new Error(`Starting balance must be between ${BALANCE_MIN} and ${BALANCE_MAX.toLocaleString("en-US")} with at most two decimals`);
   }
   if (typeof i.password !== "string" || i.password.length < 8 || i.password.length > 64) throw new Error("Password must be 8–64 characters");
-  return { accountType: i.accountType, currency: i.currency, leverage, balance, password: i.password };
+  return { nickname, accountType: i.accountType, currency: i.currency, leverage, balance, password: i.password };
 }
 
 export function formatMoney(value: number, currency: string = "USD") {
