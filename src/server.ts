@@ -27,7 +27,7 @@ type RealtimeGlobals = typeof globalThis & {
 };
 
 const REALTIME_PATH = "/api/realtime/markets";
-const REALTIME_INSTANCE = "markets";
+const REALTIME_INSTANCE = "markets-v2";
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 

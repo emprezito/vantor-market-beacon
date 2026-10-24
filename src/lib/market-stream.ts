@@ -3,7 +3,7 @@ import { REALTIME_SYMBOLS, type RealtimeSymbol } from "./realtime-symbols";
 const UPSTREAM_URL = "wss://ws.twelvedata.com/v1/quotes/price";
 const SUBSCRIPTION_SYMBOLS = Object.values(REALTIME_SYMBOLS).join(",");
 const MAX_CLIENTS = 100;
-const HEARTBEAT_MS = 15_000;
+const HEARTBEAT_MS = 10_000;
 const RECONNECT_BASE_MS = 2_000;
 const RECONNECT_MAX_MS = 30_000;
 
@@ -197,9 +197,6 @@ export class MarketStream {
 
     const providerTs = Number(payload.timestamp);
     const ts = Number.isFinite(providerTs) && providerTs > 0 ? providerTs * 1000 : Date.now();
-    const previous = this.latest.get(clientSymbol);
-    if (previous?.price === price && previous.ts === ts) return;
-
     const tick: PriceTick = { symbol: clientSymbol, price, ts };
     this.latest.set(clientSymbol, tick);
     this.broadcast({ type: "price", ...tick });

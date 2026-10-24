@@ -8,7 +8,7 @@ import { INSTRUMENTS, fmt, getInstrument } from "@/lib/market";
 import { CHART_INTERVALS, mergeQuotes, quoteFor, type ChartInterval } from "@/lib/market-data";
 import { isRealtimeSymbol } from "@/lib/realtime-symbols";
 import { calcMargin, calcPnl, closePriceFromQuote, type Side } from "@/lib/trading";
-import { openTrade, closeTrade, placeLimitOrder, cancelPendingOrder } from "@/lib/trading.functions";
+import { openTrade, placeLimitOrder } from "@/lib/trading.functions";
 import { useNow } from "@/hooks/use-session";
 import { useAccount } from "@/hooks/use-account";
 import { useMarketCandles, useMarketQuotes } from "@/hooks/use-market-data";
@@ -16,7 +16,6 @@ import { useWatchlist } from "@/hooks/use-watchlist";
 import { formatMoney } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
 import { PriceChart } from "@/components/price-chart";
-import { OpenPositionsSection, PendingOrdersSection } from "@/components/trading-tables";
 
 export const Route = createFileRoute("/_authenticated/trade")({
   head: () => ({ meta: [{ title: "Trade — Vantor" }, { name: "description", content: "Vantor trading terminal with live quotes and positions." }, { property: "og:title", content: "Trade — Vantor" }, { property: "og:description", content: "Trade global markets with fast execution." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
@@ -44,9 +43,7 @@ function Trade() {
   const { candles, source: candleSource } = useMarketCandles(symbol, timeframe, 180);
   const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const open = useServerFn(openTrade);
-  const close = useServerFn(closeTrade);
   const placeLimit = useServerFn(placeLimitOrder);
-  const cancelPending = useServerFn(cancelPendingOrder);
 
   const place = useMutation({
     mutationFn: async (side: Side) => {
@@ -70,33 +67,9 @@ function Trade() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
-  const cancelMut = useMutation({
-    mutationFn: (id: string) => {
-      if (!activeAccount) throw new Error("Open a trading account first");
-      return cancelPending({ data: { accountId: activeAccount.id, id } });
-    },
-    onSuccess: () => {
-      toast.success("Pending order cancelled");
-      qc.invalidateQueries({ queryKey: ["account"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-  const shut = useMutation({
-    mutationFn: (id: string) => {
-      if (!activeAccount) throw new Error("Open a trading account first");
-      return close({ data: { accountId: activeAccount.id, id } });
-    },
-    onSuccess: () => {
-      toast.success("Position closed");
-      qc.invalidateQueries({ queryKey: ["account"] });
-      qc.invalidateQueries({ queryKey: ["my-accounts"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
 
   const positions = useMemo(() => acc?.open ?? [], [acc?.open]);
   const chartPositions = useMemo(() => positions.filter((position) => position.symbol === symbol), [positions, symbol]);
-  const pending = acc?.pending ?? [];
   const currency = acc?.account.currency ?? activeAccount?.currency ?? "USD";
   const leverage = Number(acc?.account.leverage ?? activeAccount?.leverage ?? 100);
   const readOnly = activeAccount?.access_role === "investor";
@@ -325,23 +298,6 @@ function Trade() {
           </div>
         </section>
       </div>
-
-      <OpenPositionsSection
-        positions={positions}
-        currency={currency}
-        now={now}
-        quotes={quotes}
-        readOnly={!!readOnly}
-        busy={shut.isPending}
-        onClose={(id) => shut.mutate(id)}
-      />
-
-      <PendingOrdersSection
-        orders={pending}
-        readOnly={!!readOnly}
-        busy={cancelMut.isPending}
-        onCancel={(id) => cancelMut.mutate(id)}
-      />
     </main>
   );
 }

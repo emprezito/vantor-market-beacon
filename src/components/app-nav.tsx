@@ -84,11 +84,13 @@ export function DesktopSidebar({
   activeAccount,
   onSelect,
   onSignOut,
+  ordersActive,
 }: {
   accounts: NavAccount[];
   activeAccount: NavAccount | null;
   onSelect: (id: string) => void;
   onSignOut: () => void;
+  ordersActive: boolean;
 }) {
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-secondary-foreground/10 bg-secondary px-3 py-4 text-secondary-foreground lg:flex">
@@ -98,12 +100,22 @@ export function DesktopSidebar({
         <AccountPicker accounts={accounts} activeAccount={activeAccount} onSelect={onSelect} />
       </div>
       <nav className="mt-4 flex flex-1 flex-col gap-0.5">
-        {navItems.map((item) => (
-          <Link key={item.to} to={item.to} className={desktopLink} activeProps={{ className: desktopActive }}>
-            <item.icon className="h-4 w-4" />
-            {item.label}
-          </Link>
-        ))}
+        {navItems.map((item) => {
+          const showDot = item.to === "/orders" && ordersActive;
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={desktopLink}
+              activeProps={{ className: desktopActive }}
+              aria-label={showDot ? `${item.label} (open orders)` : undefined}
+            >
+              <item.icon className="h-4 w-4" />
+              {item.label}
+              {showDot && <span className="ml-auto h-2 w-2 rounded-full bg-red-500" aria-hidden="true" />}
+            </Link>
+          );
+        })}
       </nav>
       <button
         type="button"
@@ -125,11 +137,13 @@ export function MobileHeader({
   activeAccount,
   onSelect,
   onSignOut,
+  ordersActive,
 }: {
   accounts: NavAccount[];
   activeAccount: NavAccount | null;
   onSelect: (id: string) => void;
   onSignOut: () => void;
+  ordersActive: boolean;
 }) {
   return (
     <header className="sticky top-0 z-40 bg-secondary text-secondary-foreground lg:hidden">
@@ -144,14 +158,23 @@ export function MobileHeader({
             <SheetTitle className="text-2xl font-extrabold tracking-tight text-primary">vantor</SheetTitle>
             <SheetDescription className="sr-only">Account navigation</SheetDescription>
             <nav className="mt-5 flex flex-col gap-0.5">
-              {navItems.map((item) => (
-                <SheetClose asChild key={item.to}>
-                  <Link to={item.to} className={sheetLink} activeProps={{ className: sheetActive }}>
-                    <item.icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                </SheetClose>
-              ))}
+              {navItems.map((item) => {
+                const showDot = item.to === "/orders" && ordersActive;
+                return (
+                  <SheetClose asChild key={item.to}>
+                    <Link
+                      to={item.to}
+                      className={sheetLink}
+                      activeProps={{ className: sheetActive }}
+                      aria-label={showDot ? `${item.label} (open orders)` : undefined}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                      {showDot && <span className="ml-auto h-2 w-2 rounded-full bg-red-500" aria-hidden="true" />}
+                    </Link>
+                  </SheetClose>
+                );
+              })}
             </nav>
             <div className="mt-auto border-t border-secondary-foreground/10 pt-4">
               <SheetClose asChild>
@@ -179,16 +202,33 @@ export function MobileHeader({
 const bottomLink = "flex flex-col items-center justify-center gap-1 py-2 text-[11px] text-muted-foreground transition hover:text-foreground";
 const bottomActive = "flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold text-primary";
 
-export function MobileBottomNav() {
+export function MobileBottomNav({ ordersActive }: { ordersActive: boolean }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-background pb-[env(safe-area-inset-bottom)] lg:hidden">
       <div className="grid grid-cols-4">
-        {bottomItems.map((item) => (
-          <Link key={item.to} to={item.to} className={bottomLink} activeProps={{ className: bottomActive }}>
-            <item.icon className="h-5 w-5" />
-            {item.label}
-          </Link>
-        ))}
+        {bottomItems.map((item) => {
+          const showDot = item.to === "/orders" && ordersActive;
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={bottomLink}
+              activeProps={{ className: bottomActive }}
+              aria-label={showDot ? `${item.label} (open orders)` : undefined}
+            >
+              <span className="relative">
+                <item.icon className="h-5 w-5" />
+                {showDot && (
+                  <span
+                    className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-background"
+                    aria-hidden="true"
+                  />
+                )}
+              </span>
+              {item.label}
+            </Link>
+          );
+        })}
       </div>
     </nav>
   );

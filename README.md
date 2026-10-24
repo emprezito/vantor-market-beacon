@@ -697,6 +697,9 @@ bun run deploy
   `v2` SQLite migration. `exports.cloudflare.ts` re-exports `MarketStream` so Nitro
   includes the class in the Worker bundle. Confirm both the generated
   `.output/server/wrangler.json` binding and the `MarketStream` export after builds.
+- Active WebSocket clients can keep an existing Durable Object on the previous
+  code after a deploy. Bump `REALTIME_INSTANCE` in `src/server.ts` when changing
+  relay behavior, then hard-refresh clients so they join the new instance.
 
 - Local Cloudflare preview uses `.dev.vars` for the same values.
 - `vite.config.ts` redirects TanStack Start's server entry to `src/server.ts`

@@ -17,7 +17,8 @@ export const Route = createFileRoute("/_authenticated")({
 function Layout() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { accounts, activeAccount, setActiveAccount } = useAccount();
+  const { accounts, activeAccount, setActiveAccount, data } = useAccount();
+  const ordersActive = (data?.open?.length ?? 0) > 0 || (data?.pending?.length ?? 0) > 0;
   const signOut = async () => {
     await qc.cancelQueries();
     qc.clear();
@@ -33,17 +34,19 @@ function Layout() {
         activeAccount={activeAccount}
         onSelect={selectAccount}
         onSignOut={signOut}
+        ordersActive={ordersActive}
       />
       <MobileHeader
         accounts={accounts}
         activeAccount={activeAccount}
         onSelect={selectAccount}
         onSignOut={signOut}
+        ordersActive={ordersActive}
       />
       <div className="pb-20 lg:pb-0">
         <Outlet />
       </div>
-      <MobileBottomNav />
+      <MobileBottomNav ordersActive={ordersActive} />
     </div>
   );
 }
