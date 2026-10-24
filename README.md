@@ -143,8 +143,8 @@ Cloudflare Worker (Vite/Nitro SSR + server functions)
   ├─ requireSupabaseAuth middleware: verifies JWT via getClaims()
   ├─ market feed proxy: Twelve Data quotes/candles + in-memory cache
   │     └─→ Twelve Data REST API (optional, server-only key)
-  ├─ /api/realtime/xauusd: signed-ticket WebSocket upgrade
-  │     └─→ XauStream Durable Object → Twelve Data WebSocket
+  ├─ /api/realtime/markets: signed-ticket WebSocket upgrade
+  │     └─→ MarketStream Durable Object → Twelve Data WebSocket
   ├─ user-scoped Supabase client (publishable key + user token, RLS)
   └─ supabaseAdmin (service role, server only): all writes + atomic RPC
         │
@@ -167,11 +167,11 @@ Key properties:
   key never reaches the browser. When the provider is unavailable the deterministic
   engine in `src/lib/market.ts` supplies simulated quotes and candles, so the app
   and trading logic keep working without an external feed.
-- `XAU/USD` also has a realtime path: an authenticated server function issues a
-  120-second HMAC ticket, the Worker verifies it and forwards the WebSocket
-  upgrade to a single `XauStream` Durable Object, which owns one upstream Twelve
-  Data connection and fans ticks out to every connected browser. The provider key
-  stays inside the Worker/DO.
+- `XAU/USD` and `BTC/USD` also have a realtime path: an authenticated server
+  function issues a 120-second HMAC ticket, the Worker verifies it and forwards
+  the WebSocket upgrade to a single `MarketStream` Durable Object, which owns one
+  upstream Twelve Data connection and fans ticks out to every connected browser.
+  The provider key stays inside the Worker/DO.
 - Bid/ask are derived from the provider mid price plus the instrument spread; they
   are not exchange-native broker quotes.
 
@@ -393,7 +393,8 @@ magnitude before adding a mapping. On Basic, 14 instruments are live (11 forex,
 `XAU/USD`, `BTC/USD`, `ETH/USD`); `XAG/USD`, `WTI/USD` and index quotes need
 Grow or higher, and US indices are not part of the standard reference catalog.
 
-Realtime streaming is currently limited to `XAU/USD`. The Twelve Data trial
+Realtime streaming currently covers `XAU/USD` and `BTC/USD` over one upstream
+connection (two of the trial's eight subscription slots). The Twelve Data trial
 WebSocket accepts only a small symbol set (verified: `EUR/USD`, `XAU/USD`,
 `BTC/USD`, `AAPL`) and is evaluation-only; production realtime for other symbols
 requires a paid WebSocket plan. Trial credits are concurrent subscription slots,
@@ -504,7 +505,8 @@ credentials.
 │  │  ├─ market.functions.ts     # Quote/candle server functions
 │  │  ├─ realtime-ticket.ts      # HMAC realtime ticket signing/verification
 │  │  ├─ realtime.functions.ts   # Authenticated realtime ticket server function
-│  │  ├─ xau-stream.ts           # XAU/USD Durable Object WebSocket relay
+│  │  ├─ realtime-symbols.ts     # Realtime client/provider symbol map
+│  │  ├─ market-stream.ts        # MarketStream Durable Object WebSocket relay
 │  │  └─ error-*.ts              # SSR error capture/rendering helpers
 │  ├─ integrations/
 │  │  ├─ supabase/               # Browser client, admin client, auth middleware
@@ -513,7 +515,7 @@ credentials.
 │  │  ├─ use-account.ts          # Active account + snapshot queries
 │  │  ├─ use-active-account.ts   # localStorage account selection
 │  │  ├─ use-market-data.ts      # Quote/candle polling hooks
-│  │  ├─ use-xau-realtime.ts     # Authenticated XAU WebSocket quote hook
+│  │  ├─ use-realtime-quotes.ts  # Authenticated multi-symbol WebSocket quote hook
 │  │  ├─ use-watchlist.ts        # localStorage instrument watchlist
 │  │  └─ use-session.ts          # Session and clock hooks
 │  ├─ components/ui/             # shadcn-style component library
@@ -525,7 +527,7 @@ credentials.
 ├─ supabase/migrations/          # SQL schema and RPC migrations
 ├─ scripts/apply-schema.mjs      # Migration runner (SUPABASE_DB_URL)
 ├─ wrangler.jsonc                # Cloudflare Worker config, public vars, DO binding
-├─ exports.cloudflare.ts         # Custom Worker export (XauStream Durable Object)
+├─ exports.cloudflare.ts         # Custom Worker export (MarketStream Durable Object)
 ├─ vite.config.ts                # Lovable TanStack/Vite preset
 ├─ roadmap.md                    # Short project checklist (partly stale)
 └─ AGENTS.md                     # Repo/Lovable workflow notes
@@ -569,7 +571,7 @@ in Cloudflare secrets.
 | `SUPABASE_DB_URL` | local tooling only | Direct/session-pooler Postgres URL for migrations |
 | `TWELVE_DATA_API_KEYS` | server only | Comma-separated market data key pool; rotated round-robin and on 429 |
 | `TWELVE_DATA_API_KEY` | server only | Single-key fallback; merged with the pool and de-duplicated |
-| `REALTIME_TICKET_SECRET` | server only | HMAC secret for short-lived realtime WebSocket tickets; required for XAU streaming |
+| `REALTIME_TICKET_SECRET` | server only | HMAC secret for short-lived realtime WebSocket tickets; required for realtime streaming |
 | `MARKET_QUOTE_TTL_MS` | server only, optional | Quote cache TTL (default 60000, minimum 1000; use 15000–30000 only on paid plans) |
 | `MARKET_CANDLE_TTL_MS` | server only, optional | Candle cache TTL override (default 1m–15m by timeframe) |
 
@@ -593,7 +595,7 @@ Notes:
   minutes, so they do not consume the default budget.
 - `TWELVE_DATA_API_KEY=demo` works locally for EUR/USD and BTC/USD only.
 - Set `REALTIME_TICKET_SECRET` to a random 32-byte value (for example
-  `openssl rand -hex 32`) to enable the XAU WebSocket relay. Without it, the
+  `openssl rand -hex 32`) to enable the realtime WebSocket relay. Without it, the
   endpoint returns 503 and the terminal falls back to REST quotes.
 - If the database password contains `?`, URL-encode it as `%3F` (and as `%%3F`
   inside Windows `.cmd` files).
@@ -655,6 +657,7 @@ Vitest with jsdom covers the pure logic and routing:
 | `src/test/market-data.test.ts` | Provider symbol coverage, spread derivation, simulated fallback, synthetic OHLC candles, quote merging |
 | `src/test/market-data-rotation.test.ts` | Key-pool rotation, 429 cooldown, all-keys-limited fallback |
 | `src/test/realtime-ticket.test.ts` | Realtime ticket signing, tamper/wrong-secret/expiry rejection |
+| `src/test/realtime-symbols.test.ts` | Realtime client/provider symbol coverage |
 | `src/test/trading-validation.test.ts` | Lot limits, limit/stop-price validation, fund limits |
 | `src/test/account-options.test.ts` | Account types/currencies/leverage, balance precision, nickname rules, password length |
 | `src/test/app-routing.test.tsx` | Route matching for `/`, `/orders` and `/profile` |
@@ -687,13 +690,13 @@ bun run deploy
   ```sh
   bunx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
   bunx wrangler secret put TWELVE_DATA_API_KEY   # optional: enables live quotes
-  bunx wrangler secret put REALTIME_TICKET_SECRET # required for XAU streaming
+  bunx wrangler secret put REALTIME_TICKET_SECRET # required for realtime streaming
   ```
 
-- `wrangler.jsonc` declares the `XAU_STREAM` Durable Object binding and its
-  `v1` SQLite migration. `exports.cloudflare.ts` re-exports `XauStream` so Nitro
+- `wrangler.jsonc` declares the `MARKET_STREAM` Durable Object binding and its
+  `v2` SQLite migration. `exports.cloudflare.ts` re-exports `MarketStream` so Nitro
   includes the class in the Worker bundle. Confirm both the generated
-  `.output/server/wrangler.json` binding and the `XauStream` export after builds.
+  `.output/server/wrangler.json` binding and the `MarketStream` export after builds.
 
 - Local Cloudflare preview uses `.dev.vars` for the same values.
 - `vite.config.ts` redirects TanStack Start's server entry to `src/server.ts`
@@ -736,13 +739,13 @@ Cloudflare Worker above is the current production deployment.
   (`getAccount`, every 5 seconds while the terminal is open). There is no
   background scheduler, so fills can be delayed while the app is closed.
 - **Market feed:** quotes come from Twelve Data when configured, otherwise from a
-  deterministic synthetic engine. `XAU/USD` can use realtime WebSocket ticks;
-  other symbols are REST/cached/simulated. There is no true tick-level bid/ask,
-  depth, swap, commission or spread-widening model; bid/ask is provider mid ± the
-  fixed instrument spread.
-- **Realtime scope:** the trial WebSocket only covers `XAU/USD` in this app;
-  additional realtime symbols require a paid Twelve Data plan. If the relay is
-  unavailable, the terminal keeps the REST/cached/simulated quote path.
+  deterministic synthetic engine. `XAU/USD` and `BTC/USD` can use realtime
+  WebSocket ticks; other symbols are REST/cached/simulated. There is no true
+  tick-level bid/ask, depth, swap, commission or spread-widening model; bid/ask is
+  provider mid ± the fixed instrument spread.
+- **Realtime scope:** the trial WebSocket only covers `XAU/USD` and `BTC/USD` in
+  this app; additional realtime symbols require a paid Twelve Data plan. If the
+  relay is unavailable, the terminal keeps the REST/cached/simulated quote path.
 - **Feed limits:** caches are per Worker isolate and reset on deploy. Many symbols
   polled frequently need a paid Twelve Data plan; when the plan, key or symbol
   coverage fails, the UI falls back to cached or simulated data (shown in the

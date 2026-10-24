@@ -79,8 +79,12 @@ export function useRealtimeQuotes(symbols: string[]): {
 
           const type = payload["type"];
           if (type === "status") {
-            if (payload["status"] === "live") setStatus("live");
-            else if (payload["status"] === "reconnecting") setStatus("reconnecting");
+            if (payload["status"] === "live") {
+              setStatus("live");
+            } else {
+              setQuotes({});
+              setStatus("reconnecting");
+            }
             return;
           }
           if (type !== "price") return;
