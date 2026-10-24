@@ -3,7 +3,7 @@
 A full-stack trading platform modelled on Exness. Users register, open one or
 more MT5-style trading accounts with their own balance, currency, leverage and
 nickname, then trade forex, metals, energy, index and crypto instruments with
-live P/L, margin, stop loss and take profit.
+market data, live P/L, margin, stop loss and take profit.
 
 **Live app:** https://vantor-market-beacon.fundedng.workers.dev
 
@@ -73,7 +73,14 @@ live P/L, margin, stop loss and take profit.
   margin is sufficient.
 - Per-account currency and leverage; margin, equity, free margin and floating
   P/L update every second in the UI.
-- MT5-style dashed entry lines with P/L pills overlaid on the price chart.
+- Lightweight Charts candlestick chart with 1m/5m/15m/30m/1H timeframes, live
+  last-bar updates and dashed entry price lines for open positions.
+- Server-side market feed (Twelve Data) with quote/candle caching and an
+  automatic deterministic simulated fallback when no API key or credits are
+  available. The terminal shows whether quotes are live, cached or simulated.
+- Realtime `XAU/USD` and `BTC/USD` ticks via a server-side Twelve Data WebSocket
+  relay; the browser connects through an authenticated, short-lived ticket and
+  all clients share one upstream stream.
 - Stop loss / take profit are validated when the order is placed and evaluated
   server-side on every account poll (every 5 seconds). Due limit orders are
   evaluated in the same poll.
@@ -111,9 +118,10 @@ live P/L, margin, stop loss and take profit.
 | --- | --- |
 | UI | React 19, Tailwind CSS v4, Radix UI / shadcn-style components, lucide-react |
 | Routing / SSR | TanStack Router + TanStack Start |
-| Data fetching | TanStack Query (5-second refetch on the active account) |
+| Data fetching | TanStack Query (5-second account/quote poll, 60-second candle poll) |
 | Forms / feedback | Plain React forms, Sonner toasts |
-| Charts | Hand-written SVG chart (no chart dependency at runtime) |
+| Charts | Lightweight Charts 5 (TradingView) |
+| Market data | Twelve Data REST API, server-side proxy with caching and simulated fallback |
 | Auth | Supabase Auth (`@supabase/supabase-js`) |
 | Database | Supabase Postgres with RLS |
 | Validation | Custom validators in `src/lib/*` (no zod on the hot path) |
@@ -133,6 +141,10 @@ Browser
         │
 Cloudflare Worker (Vite/Nitro SSR + server functions)
   ├─ requireSupabaseAuth middleware: verifies JWT via getClaims()
+  ├─ market feed proxy: Twelve Data quotes/candles + in-memory cache
+  │     └─→ Twelve Data REST API (optional, server-only key)
+  ├─ /api/realtime/xauusd: signed-ticket WebSocket upgrade
+  │     └─→ XauStream Durable Object → Twelve Data WebSocket
   ├─ user-scoped Supabase client (publishable key + user token, RLS)
   └─ supabaseAdmin (service role, server only): all writes + atomic RPC
         │
@@ -151,18 +163,29 @@ Key properties:
   by RLS policies.
 - Server functions are protected by a bearer-token middleware and TanStack's
   CSRF middleware.
-- The market is deterministic (`src/lib/market.ts`), so browser and server agree
-  on prices at any timestamp without an external feed.
+- Quotes are loaded server-side (`src/lib/market-data.server.ts`) so the provider
+  key never reaches the browser. When the provider is unavailable the deterministic
+  engine in `src/lib/market.ts` supplies simulated quotes and candles, so the app
+  and trading logic keep working without an external feed.
+- `XAU/USD` also has a realtime path: an authenticated server function issues a
+  120-second HMAC ticket, the Worker verifies it and forwards the WebSocket
+  upgrade to a single `XauStream` Durable Object, which owns one upstream Twelve
+  Data connection and fans ticks out to every connected browser. The provider key
+  stays inside the Worker/DO.
+- Bid/ask are derived from the provider mid price plus the instrument spread; they
+  are not exchange-native broker quotes.
 
 ### Request flow for a trade
 
 1. User submits a buy/sell on `/trade`.
 2. `openTrade` server fn validates input (instrument, side, lots, stops).
 3. `snapshot()` loads the account (ownership-checked) and open positions.
-4. Margin is calculated with the account's leverage; free margin is checked.
-5. `apply_demo_operation` runs under a row lock with optimistic concurrency:
+4. The server loads quotes for the new instrument and any open positions from
+   the cached market feed (simulated fallback if needed).
+5. Margin is calculated with the account's leverage; free margin is checked.
+6. `apply_demo_operation` runs under a row lock with optimistic concurrency:
    the expected balance and open-position ID set must match.
-6. Position row is inserted (or balance updated), and the UI invalidates the
+7. Position row is inserted (or balance updated), and the UI invalidates the
    `account` and `my-accounts` queries.
 
 ---
@@ -201,7 +224,9 @@ API layer.
 | `listMyAccounts` | `src/lib/accounts.functions.ts` | – | Lists owned accounts with `nickname`, type, login, server, role, balance, currency, leverage |
 | `openDemoAccount` | `src/lib/accounts.functions.ts` | nickname, accountType, currency, leverage, balance, password | Creates a trading account with generated login/investor password and an `initial` transaction |
 | `claimTradingAccount` | `src/lib/accounts.functions.ts` | login, password, server | Links an unowned account, or returns the role if already owned |
-| `getAccount` | `src/lib/trading.functions.ts` | accountId | Snapshot: account, balance, open/closed positions (100), pending orders, transactions (100); auto-closes triggered SL/TP and fills due limits |
+| `getMarketQuotes` | `src/lib/market.functions.ts` | symbols[] (max 21) | Server-side quote feed; per-symbol cache, 60s TTL, simulated fallback |
+| `getMarketCandles` | `src/lib/market.functions.ts` | symbol, interval, points (20–500) | OHLC candles for the chart; provider cache and simulated fallback |
+| `getAccount` | `src/lib/trading.functions.ts` | accountId | Snapshot: account, balance, open/closed positions (100), pending orders, transactions (100), quotes for open/pending symbols; auto-closes triggered SL/TP and fills due limits |
 | `openTrade` | `src/lib/trading.functions.ts` | accountId, symbol, side, lots, stopLoss, takeProfit | Validates, checks free margin, inserts position atomically |
 | `placeLimitOrder` | `src/lib/trading.functions.ts` | accountId, symbol, side, lots, limitPrice, stopLoss, takeProfit | Validates pending price/stop sides and inserts a pending order |
 | `cancelPendingOrder` | `src/lib/trading.functions.ts` | accountId, id | Cancels one pending order atomically |
@@ -210,8 +235,10 @@ API layer.
 
 Shared helpers live in `src/lib/trading.ts` (pricing math),
 `src/lib/trading-validation.ts` (order/fund limits),
-`src/lib/account-options.ts` (account choices, validation, currency formatting)
-and `src/lib/market.ts` (instruments and quotes).
+`src/lib/account-options.ts` (account choices, validation, currency formatting),
+`src/lib/market.ts` (instrument catalog and deterministic fallback prices),
+`src/lib/market-data.ts` (feed types, provider symbol map, synthetic candles) and
+`src/lib/market-data.server.ts` (Twelve Data client, caches, fallback).
 
 ### Atomic database RPC
 
@@ -349,9 +376,30 @@ writes go through server functions using the service role.
 | BTCUSD | Bitcoin / US Dollar | 1 | 15 | 1 | yes |
 | ETHUSD | Ethereum / US Dollar | 2 | 1.5 | 1 | yes |
 
-Prices are a deterministic multi-sine function of the current timestamp plus a
-per-symbol phase seed. Bid/ask are the mid price ± half the spread. Ten minutes
-of history is generated at 5-second steps for the chart.
+Prices come from Twelve Data for mapped instruments when `TWELVE_DATA_API_KEYS`
+is configured; unmapped instruments and any provider failure use the deterministic
+multi-sine engine (same per-symbol phase seed). Bid/ask
+are the provider mid price ± half the spread. Chart candles come from the
+provider time-series endpoint, and synthetic OHLC candles are generated from the
+fallback engine when the feed is unavailable.
+
+Provider symbol mapping lives in `PROVIDER_SYMBOLS` (`src/lib/market-data.ts`).
+Forex pairs use the slash form (`EUR/USD`); metals are `XAU/USD`, `XAG/USD`;
+energy is `WTI/USD`; indices are `DJI`, `NDX`, `SPX`, `FTSE`; crypto is
+`BTC/USD`, `ETH/USD`. Instruments without a mapping stay on the deterministic
+synthetic feed. `GER40` is intentionally unmapped because Twelve Data's `DAX`
+resolves to an ETF rather than the index; verify both the instrument and price
+magnitude before adding a mapping. On Basic, 14 instruments are live (11 forex,
+`XAU/USD`, `BTC/USD`, `ETH/USD`); `XAG/USD`, `WTI/USD` and index quotes need
+Grow or higher, and US indices are not part of the standard reference catalog.
+
+Realtime streaming is currently limited to `XAU/USD`. The Twelve Data trial
+WebSocket accepts only a small symbol set (verified: `EUR/USD`, `XAU/USD`,
+`BTC/USD`, `AAPL`) and is evaluation-only; production realtime for other symbols
+requires a paid WebSocket plan. Trial credits are concurrent subscription slots,
+not minutes: one connection per account can hold eight subscribed symbols
+indefinitely while connected. The relay keeps one upstream connection open while
+at least one browser is subscribed and closes it when the last client leaves.
 
 ### Formulas
 
@@ -442,6 +490,7 @@ credentials.
 │  │  └─ routeTree.gen.ts        # Generated by TanStack Router
 │  ├─ components/
 │  │  ├─ app-nav.tsx             # Desktop sidebar, mobile header/drawer, bottom nav
+│  │  ├─ price-chart.tsx         # Lightweight Charts candlestick terminal chart
 │  │  └─ trading-tables.tsx      # Shared positions/pending-order tables
 │  ├─ lib/
 │  │  ├─ account-options.ts      # Types/currencies/leverage, validation, money fmt
@@ -449,7 +498,13 @@ credentials.
 │  │  ├─ trading.functions.ts    # Trading/wallet server functions
 │  │  ├─ trading.ts              # Pricing, P/L, margin, stops
 │  │  ├─ trading-validation.ts   # Order/fund validation
-│  │  ├─ market.ts               # Instruments and deterministic pricing
+│  │  ├─ market.ts               # Instruments and deterministic fallback pricing
+│  │  ├─ market-data.ts          # Feed types, provider symbols, synthetic candles
+│  │  ├─ market-data.server.ts   # Twelve Data client, caches, fallback
+│  │  ├─ market.functions.ts     # Quote/candle server functions
+│  │  ├─ realtime-ticket.ts      # HMAC realtime ticket signing/verification
+│  │  ├─ realtime.functions.ts   # Authenticated realtime ticket server function
+│  │  ├─ xau-stream.ts           # XAU/USD Durable Object WebSocket relay
 │  │  └─ error-*.ts              # SSR error capture/rendering helpers
 │  ├─ integrations/
 │  │  ├─ supabase/               # Browser client, admin client, auth middleware
@@ -457,6 +512,8 @@ credentials.
 │  ├─ hooks/
 │  │  ├─ use-account.ts          # Active account + snapshot queries
 │  │  ├─ use-active-account.ts   # localStorage account selection
+│  │  ├─ use-market-data.ts      # Quote/candle polling hooks
+│  │  ├─ use-xau-realtime.ts     # Authenticated XAU WebSocket quote hook
 │  │  ├─ use-watchlist.ts        # localStorage instrument watchlist
 │  │  └─ use-session.ts          # Session and clock hooks
 │  ├─ components/ui/             # shadcn-style component library
@@ -467,7 +524,8 @@ credentials.
 │  └─ styles.css                 # Tailwind v4 theme (oklch tokens)
 ├─ supabase/migrations/          # SQL schema and RPC migrations
 ├─ scripts/apply-schema.mjs      # Migration runner (SUPABASE_DB_URL)
-├─ wrangler.jsonc                # Cloudflare Worker config + public vars
+├─ wrangler.jsonc                # Cloudflare Worker config, public vars, DO binding
+├─ exports.cloudflare.ts         # Custom Worker export (XauStream Durable Object)
 ├─ vite.config.ts                # Lovable TanStack/Vite preset
 ├─ roadmap.md                    # Short project checklist (partly stale)
 └─ AGENTS.md                     # Repo/Lovable workflow notes
@@ -487,7 +545,9 @@ bun run dev        # http://localhost:5173
 ```
 
 Apply the database migrations once (see below), then register a user in the app
-and open a trading account.
+and open a trading account. Add `TWELVE_DATA_API_KEY` to `.dev.vars` (or
+`.env.local`) to use live market data locally; otherwise the terminal runs on the
+simulated feed.
 
 ---
 
@@ -507,6 +567,11 @@ in Cloudflare secrets.
 | `VITE_SUPABASE_PROJECT_ID` | browser | Vite-exposed project reference |
 | `SUPABASE_SERVICE_ROLE_KEY` | server only | Bypasses RLS; required by all mutations |
 | `SUPABASE_DB_URL` | local tooling only | Direct/session-pooler Postgres URL for migrations |
+| `TWELVE_DATA_API_KEYS` | server only | Comma-separated market data key pool; rotated round-robin and on 429 |
+| `TWELVE_DATA_API_KEY` | server only | Single-key fallback; merged with the pool and de-duplicated |
+| `REALTIME_TICKET_SECRET` | server only | HMAC secret for short-lived realtime WebSocket tickets; required for XAU streaming |
+| `MARKET_QUOTE_TTL_MS` | server only, optional | Quote cache TTL (default 60000, minimum 1000; use 15000–30000 only on paid plans) |
+| `MARKET_CANDLE_TTL_MS` | server only, optional | Candle cache TTL override (default 1m–15m by timeframe) |
 
 Notes:
 
@@ -514,6 +579,22 @@ Notes:
   key or the database URL.
 - The worker needs `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and the
   `SUPABASE_SERVICE_ROLE_KEY` secret.
+- Add `TWELVE_DATA_API_KEYS` as a Worker secret to enable live quotes. Each free
+  Basic key allows 8 credits/minute and 800/day; a 12-key pool gives 96/minute
+  and 9,600/day, with round-robin rotation and a per-key cooldown on 429
+  (until the next minute, or UTC midnight for a daily limit).
+- At the 60s quote TTL, the default watchlist has five provider-backed symbols
+  plus one chart candle: about 6 credits/minute, or 8,640/day, so 12 keys cover
+  24/7 use with roughly 10% headroom. The 14 symbols that are live on Basic
+  (11 forex, gold, BTC and ETH) plus one candle need 15/minute, or 21,600/day,
+  so the pool covers about 10.7 hours per day. If all 21 instruments were live
+  (requires Grow+), 31,680/day would need about 40 keys for 24/7. Indices plus
+  silver and WTI are plan-restricted on Basic and are retried only every 15
+  minutes, so they do not consume the default budget.
+- `TWELVE_DATA_API_KEY=demo` works locally for EUR/USD and BTC/USD only.
+- Set `REALTIME_TICKET_SECRET` to a random 32-byte value (for example
+  `openssl rand -hex 32`) to enable the XAU WebSocket relay. Without it, the
+  endpoint returns 503 and the terminal falls back to REST quotes.
 - If the database password contains `?`, URL-encode it as `%3F` (and as `%%3F`
   inside Windows `.cmd` files).
 
@@ -558,8 +639,8 @@ CLI) and redeploy, because PostgREST caches function signatures briefly.
 | `bun run deploy` | Build + `wrangler deploy` |
 | `bun run preview:cloudflare` | Build + `wrangler dev` |
 
-> On some Windows setups the default Vitest forks pool stalls ("Timeout waiting
-> for worker to respond"); use `bunx vitest run --pool=threads`. Likewise, the
+> On some Windows setups the Vitest forks pool stalls when files run in
+> parallel; use `bunx vitest run --pool=forks --maxWorkers=1`. Likewise, the
 > shell can hang on Bun commands when run through certain terminal wrappers.
 
 ---
@@ -571,6 +652,9 @@ Vitest with jsdom covers the pure logic and routing:
 | Suite | Coverage |
 | --- | --- |
 | `src/test/trading.test.ts` | P/L, leverage-aware margin, limit fills, stop-loss/take-profit logic |
+| `src/test/market-data.test.ts` | Provider symbol coverage, spread derivation, simulated fallback, synthetic OHLC candles, quote merging |
+| `src/test/market-data-rotation.test.ts` | Key-pool rotation, 429 cooldown, all-keys-limited fallback |
+| `src/test/realtime-ticket.test.ts` | Realtime ticket signing, tamper/wrong-secret/expiry rejection |
 | `src/test/trading-validation.test.ts` | Lot limits, limit/stop-price validation, fund limits |
 | `src/test/account-options.test.ts` | Account types/currencies/leverage, balance precision, nickname rules, password length |
 | `src/test/app-routing.test.tsx` | Route matching for `/`, `/orders` and `/profile` |
@@ -580,7 +664,7 @@ Run:
 ```sh
 bun run test
 # or, on Windows:
-bunx vitest run --pool=threads
+bunx vitest run --pool=forks --maxWorkers=1
 ```
 
 Database-level isolation is not part of the automated suite; it was validated
@@ -602,7 +686,14 @@ bun run deploy
 
   ```sh
   bunx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+  bunx wrangler secret put TWELVE_DATA_API_KEY   # optional: enables live quotes
+  bunx wrangler secret put REALTIME_TICKET_SECRET # required for XAU streaming
   ```
+
+- `wrangler.jsonc` declares the `XAU_STREAM` Durable Object binding and its
+  `v1` SQLite migration. `exports.cloudflare.ts` re-exports `XauStream` so Nitro
+  includes the class in the Worker bundle. Confirm both the generated
+  `.output/server/wrangler.json` binding and the `XauStream` export after builds.
 
 - Local Cloudflare preview uses `.dev.vars` for the same values.
 - `vite.config.ts` redirects TanStack Start's server entry to `src/server.ts`
@@ -644,8 +735,22 @@ Cloudflare Worker above is the current production deployment.
 - **Limit fills:** pending orders are evaluated only when the account is polled
   (`getAccount`, every 5 seconds while the terminal is open). There is no
   background scheduler, so fills can be delayed while the app is closed.
-- **Synthetic market:** quotes are generated deterministically; there is no live
-  price feed, spread widening, swap or commission modelling.
+- **Market feed:** quotes come from Twelve Data when configured, otherwise from a
+  deterministic synthetic engine. `XAU/USD` can use realtime WebSocket ticks;
+  other symbols are REST/cached/simulated. There is no true tick-level bid/ask,
+  depth, swap, commission or spread-widening model; bid/ask is provider mid ± the
+  fixed instrument spread.
+- **Realtime scope:** the trial WebSocket only covers `XAU/USD` in this app;
+  additional realtime symbols require a paid Twelve Data plan. If the relay is
+  unavailable, the terminal keeps the REST/cached/simulated quote path.
+- **Feed limits:** caches are per Worker isolate and reset on deploy. Many symbols
+  polled frequently need a paid Twelve Data plan; when the plan, key or symbol
+  coverage fails, the UI falls back to cached or simulated data (shown in the
+  terminal badge). Index provider symbols are configured but not verified against
+  a paid plan.
+- **Chart library:** Lightweight Charts is the standalone TradingView library. Full
+  TradingView Advanced Charts (licensed) would require replacing the chart
+  component and adding a UDF-compatible datafeed endpoint.
 - **Funding:** balances are credited through the internal wallet; no live payment
   provider or card/bank deposit rail is connected yet.
 - **No self-service account deletion or password reset UI.**

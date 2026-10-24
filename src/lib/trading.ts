@@ -12,6 +12,14 @@ export function closePrice(symbol: string, side: Side, t: number) {
   return side === "buy" ? q.bid : q.ask;
 }
 
+export function openPriceFromQuote(side: Side, q: { bid: number; ask: number }) {
+  return side === "buy" ? q.ask : q.bid;
+}
+
+export function closePriceFromQuote(side: Side, q: { bid: number; ask: number }) {
+  return side === "buy" ? q.bid : q.ask;
+}
+
 /** Profit/loss in USD. */
 export function calcPnl(symbol: string, side: Side, lots: number, open: number, close: number) {
   const i = getInstrument(symbol);

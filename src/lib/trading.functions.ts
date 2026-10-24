@@ -2,11 +2,16 @@ import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { calcMargin, calcPnl, closePrice, limitHit, openPrice, stopHit, type Side } from "./trading";
+import { calcMargin, calcPnl, closePriceFromQuote, limitHit, openPriceFromQuote, stopHit, type Side } from "./trading";
 import { validateOrder, validateFunds, validateLimitOrder, type LimitOrderInput } from "./trading-validation";
-import { quote } from "./market";
+import { quoteFor, type QuoteMap } from "./market-data";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+async function loadQuoteMap(symbols: string[]): Promise<QuoteMap> {
+  const { loadQuotes } = await import("./market-data.server");
+  return loadQuotes(symbols);
+}
 
 function validateAccountId(i: { accountId: string }) {
   if (typeof i.accountId !== "string" || !/^[0-9a-f-]{36}$/i.test(i.accountId)) throw new Error("Invalid trading account");
@@ -28,11 +33,14 @@ async function snapshot(db: SupabaseClient<Database>, userId: string, accountId:
   return { account: account.data, balance: Number(account.data.balance), positions: positions.data ?? [] };
 }
 
-function exposure(state: Awaited<ReturnType<typeof snapshot>>, now: number, leverage: number) {
-  return state.positions.reduce((result, p) => ({
-    used: result.used + calcMargin(p.symbol, Number(p.lots), Number(p.open_price), leverage),
-    floating: result.floating + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), closePrice(p.symbol, p.side as Side, now)),
-  }), { used: 0, floating: 0 });
+function exposure(state: Awaited<ReturnType<typeof snapshot>>, quotes: QuoteMap, now: number, leverage: number) {
+  return state.positions.reduce((result, p) => {
+    const price = closePriceFromQuote(p.side as Side, quoteFor(quotes, p.symbol, now));
+    return {
+      used: result.used + calcMargin(p.symbol, Number(p.lots), Number(p.open_price), leverage),
+      floating: result.floating + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), price),
+    };
+  }, { used: 0, floating: 0 });
 }
 
 async function apply(userId: string, state: Awaited<ReturnType<typeof snapshot>>, action: string, payload: Json) {
@@ -48,11 +56,12 @@ async function apply(userId: string, state: Awaited<ReturnType<typeof snapshot>>
   if (error) throw new Error(error.message);
 }
 
-async function closeOne(db: SupabaseClient<Database>, userId: string, accountId: string, id: string, reason: string) {
+async function closeOne(db: SupabaseClient<Database>, userId: string, accountId: string, id: string, reason: string, quotes?: QuoteMap) {
   const state = await snapshot(db, userId, accountId);
   const pos = state.positions.find((p) => p.id === id);
   if (!pos) throw new Error("Position not found");
-  const price = closePrice(pos.symbol, pos.side as Side, Date.now());
+  const prices = quotes ?? (await loadQuoteMap([pos.symbol]));
+  const price = closePriceFromQuote(pos.side as Side, quoteFor(prices, pos.symbol, Date.now()));
   const pnl = r2(calcPnl(pos.symbol, pos.side as Side, Number(pos.lots), Number(pos.open_price), price));
   await apply(userId, state, "close", { id, price, pnl, reason });
 }
@@ -65,15 +74,22 @@ async function fillDueLimitOrders(db: SupabaseClient<Database>, userId: string, 
     .eq("status", "pending")
     .order("created_at");
   if (error) throw new Error("Could not load pending orders. Please try again.");
+  if (!orders?.length) return;
 
-  for (const order of orders ?? []) {
+  const initial = await snapshot(db, userId, accountId);
+  const quotes = await loadQuoteMap([
+    ...orders.map((order) => order.symbol),
+    ...initial.positions.map((position) => position.symbol),
+  ]);
+
+  for (const order of orders) {
     const now = Date.now();
     const price = Number(order.limit_price);
-    if (!limitHit(order.side as Side, quote(order.symbol, now), price)) continue;
+    if (!limitHit(order.side as Side, quoteFor(quotes, order.symbol, now), price)) continue;
 
     const state = await snapshot(db, userId, accountId);
     const leverage = Number(state.account.leverage) || 100;
-    const { used, floating } = exposure(state, now, leverage);
+    const { used, floating } = exposure(state, quotes, now, leverage);
     const margin = calcMargin(order.symbol, Number(order.lots), price, leverage);
     if (margin > state.balance + floating - used) continue;
 
@@ -94,9 +110,11 @@ export const getAccount = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const initial = await snapshot(supabase, userId, data.accountId);
     const now = Date.now();
+    const initialQuotes = await loadQuoteMap(initial.positions.map((position) => position.symbol));
     for (const p of initial.positions) {
-      const hit = stopHit(p.side as Side, closePrice(p.symbol, p.side as Side, now), p.stop_loss == null ? null : Number(p.stop_loss), p.take_profit == null ? null : Number(p.take_profit));
-      if (hit) await closeOne(supabase, userId, data.accountId, p.id, hit === "sl" ? "Stop loss" : "Take profit");
+      const price = closePriceFromQuote(p.side as Side, quoteFor(initialQuotes, p.symbol, now));
+      const hit = stopHit(p.side as Side, price, p.stop_loss == null ? null : Number(p.stop_loss), p.take_profit == null ? null : Number(p.take_profit));
+      if (hit) await closeOne(supabase, userId, data.accountId, p.id, hit === "sl" ? "Stop loss" : "Take profit", initialQuotes);
     }
     await fillDueLimitOrders(supabase, userId, data.accountId);
     const [state, closed, tx, pending] = await Promise.all([
@@ -106,6 +124,10 @@ export const getAccount = createServerFn({ method: "POST" })
       supabase.from("pending_orders").select("*").eq("account_id", data.accountId).eq("status", "pending").order("created_at"),
     ]);
     if (closed.error || tx.error || pending.error) throw new Error("Could not load account activity. Please try again.");
+    const quotes = await loadQuoteMap([
+      ...state.positions.map((position) => position.symbol),
+      ...(pending.data ?? []).map((order) => order.symbol),
+    ]);
     return {
       account: {
         id: state.account.id,
@@ -122,6 +144,7 @@ export const getAccount = createServerFn({ method: "POST" })
       pending: pending.data ?? [],
       closed: closed.data ?? [],
       transactions: tx.data ?? [],
+      quotes,
     };
   });
 
@@ -130,14 +153,16 @@ export const openTrade = createServerFn({ method: "POST" })
   .inputValidator((i: { accountId: string; symbol: string; side: Side; lots: number; stopLoss: number | null; takeProfit: number | null }) => ({ ...validateOrder(i), ...validateAccountId(i) }))
   .handler(async ({ data, context }) => {
     const { accountId, ...order } = data;
+    const state = await requireTradable(context.supabase, context.userId, accountId);
     const now = Date.now();
-    const price = openPrice(order.symbol, order.side, now);
-    const exitPrice = closePrice(order.symbol, order.side, now);
+    const quotes = await loadQuoteMap([order.symbol, ...state.positions.map((position) => position.symbol)]);
+    const quote = quoteFor(quotes, order.symbol, now);
+    const price = openPriceFromQuote(order.side, quote);
+    const exitPrice = closePriceFromQuote(order.side, quote);
     if (order.stopLoss != null && stopHit(order.side, exitPrice, order.stopLoss, null)) throw new Error("Stop loss is on the wrong side of the price");
     if (order.takeProfit != null && stopHit(order.side, exitPrice, null, order.takeProfit)) throw new Error("Take profit is on the wrong side of the price");
-    const state = await requireTradable(context.supabase, context.userId, accountId);
     const leverage = Number(state.account.leverage) || 100;
-    const { used, floating } = exposure(state, now, leverage);
+    const { used, floating } = exposure(state, quotes, now, leverage);
     const margin = calcMargin(order.symbol, order.lots, price, leverage);
     if (margin > state.balance + floating - used) throw new Error("Not enough free margin");
     await apply(context.userId, state, "open", { ...order, price, margin, used, floating });
@@ -150,7 +175,8 @@ export const placeLimitOrder = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { accountId, ...order } = data;
     const state = await requireTradable(context.supabase, context.userId, accountId);
-    const q = quote(order.symbol, Date.now());
+    const now = Date.now();
+    const q = quoteFor(await loadQuoteMap([order.symbol]), order.symbol, now);
     if (order.side === "buy" && order.limitPrice >= q.ask) throw new Error("Buy limit price must be below the current ask");
     if (order.side === "sell" && order.limitPrice <= q.bid) throw new Error("Sell limit price must be above the current bid");
     if (order.stopLoss != null && stopHit(order.side, order.limitPrice, order.stopLoss, null)) throw new Error("Stop loss is on the wrong side of the limit price");
@@ -188,7 +214,9 @@ export const moveFunds = createServerFn({ method: "POST" })
   .inputValidator((i: { accountId: string; kind: "deposit" | "withdraw"; amount: number }) => ({ ...validateFunds(i), ...validateAccountId(i) }))
   .handler(async ({ data, context }) => {
     const state = await requireTradable(context.supabase, context.userId, data.accountId);
-    const { used, floating } = exposure(state, Date.now(), Number(state.account.leverage) || 100);
+    const now = Date.now();
+    const quotes = await loadQuoteMap(state.positions.map((position) => position.symbol));
+    const { used, floating } = exposure(state, quotes, now, Number(state.account.leverage) || 100);
     if (data.kind === "withdraw" && data.amount > Math.min(state.balance, state.balance + floating - used)) throw new Error("You can't withdraw money used as margin or more than your available funds");
     await apply(context.userId, state, data.kind, { amount: data.amount, used, floating });
     return { balance: r2(state.balance + (data.kind === "deposit" ? data.amount : -data.amount)) };

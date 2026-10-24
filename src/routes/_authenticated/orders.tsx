@@ -1,10 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { useMemo } from "react";
 import { toast } from "sonner";
 import { closeTrade, cancelPendingOrder } from "@/lib/trading.functions";
+import { mergeQuotes } from "@/lib/market-data";
 import { useNow } from "@/hooks/use-session";
 import { useAccount } from "@/hooks/use-account";
+import { useMarketQuotes } from "@/hooks/use-market-data";
 import { Button } from "@/components/ui/button";
 import { OpenPositionsSection, PendingOrdersSection } from "@/components/trading-tables";
 
@@ -23,6 +26,12 @@ function OrdersPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: acc, activeAccount, isPending, error, refetch } = useAccount();
+  const symbols = useMemo(
+    () => [...(acc?.open ?? []).map((position) => position.symbol), ...(acc?.pending ?? []).map((order) => order.symbol)],
+    [acc?.open, acc?.pending],
+  );
+  const { quotes: liveQuotes } = useMarketQuotes(symbols);
+  const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const close = useServerFn(closeTrade);
   const cancel = useServerFn(cancelPendingOrder);
 
@@ -77,6 +86,7 @@ function OrdersPage() {
         positions={positions}
         currency={activeAccount.currency}
         now={now}
+        quotes={quotes}
         readOnly={readOnly}
         busy={closeMut.isPending}
         onClose={(id) => closeMut.mutate(id)}

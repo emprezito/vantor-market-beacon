@@ -4,58 +4,24 @@ import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Star } from "lucide-react";
-import { INSTRUMENTS, fmt, history, quote, getInstrument } from "@/lib/market";
-import { calcMargin, calcPnl, closePrice, type Side } from "@/lib/trading";
+import { INSTRUMENTS, fmt, getInstrument } from "@/lib/market";
+import { CHART_INTERVALS, mergeQuotes, quoteFor, type ChartInterval } from "@/lib/market-data";
+import { isRealtimeSymbol } from "@/lib/realtime-symbols";
+import { calcMargin, calcPnl, closePriceFromQuote, type Side } from "@/lib/trading";
 import { openTrade, closeTrade, placeLimitOrder, cancelPendingOrder } from "@/lib/trading.functions";
 import { useNow } from "@/hooks/use-session";
 import { useAccount } from "@/hooks/use-account";
+import { useMarketCandles, useMarketQuotes } from "@/hooks/use-market-data";
 import { useWatchlist } from "@/hooks/use-watchlist";
 import { formatMoney } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
+import { PriceChart } from "@/components/price-chart";
 import { OpenPositionsSection, PendingOrdersSection } from "@/components/trading-tables";
 
 export const Route = createFileRoute("/_authenticated/trade")({
   head: () => ({ meta: [{ title: "Trade — Vantor" }, { name: "description", content: "Vantor trading terminal with live quotes and positions." }, { property: "og:title", content: "Trade — Vantor" }, { property: "og:description", content: "Trade global markets with fast execution." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
   component: Trade,
 });
-
-function Chart({ symbol, now, positions }: { symbol: string; now: number; positions: { id: string; symbol: string; side: string; lots: number; open_price: number }[] }) {
-  const pts = useMemo(() => history(symbol, now), [symbol, now]);
-  const ps = pts.map((x) => x.p);
-  const W = 800, H = 300;
-  const entries = positions.map((p) => Number(p.open_price));
-  const min = Math.min(...ps, ...entries), max = Math.max(...ps, ...entries);
-  const yOf = (p: number) => H - ((p - min) / (max - min || 1)) * (H - 20) - 10;
-  const d = pts.map((x, i) => `${i ? "L" : "M"}${(i / (pts.length - 1)) * W},${yOf(x.p)}`).join(" ");
-  const up = (ps.at(-1) ?? 0) >= (ps[0] ?? 0);
-  const marks = positions.map((p) => {
-    const side = p.side as Side;
-    const entry = Number(p.open_price);
-    const pnl = calcPnl(p.symbol, side, Number(p.lots), entry, closePrice(p.symbol, side, now));
-    return { id: p.id, side, lots: Number(p.lots), entry, pnl, y: yOf(entry) };
-  });
-  return (
-    <div className="relative overflow-hidden">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-56 w-full sm:h-72" preserveAspectRatio="none">
-        <path d={`${d} L${W},${H} L0,${H} Z`} className={up ? "fill-accent/10" : "fill-destructive/10"} />
-        <path d={d} fill="none" strokeWidth={2} className={up ? "stroke-accent" : "stroke-destructive"} />
-        {marks.map((m) => (
-          <line key={m.id} x1={0} x2={W} y1={m.y} y2={m.y} strokeWidth={1.5} strokeDasharray="8 6" className={m.pnl >= 0 ? "stroke-accent" : "stroke-destructive"} />
-        ))}
-      </svg>
-      {marks.map((m) => (
-        <div
-          key={m.id}
-          style={{ top: `${(m.y / H) * 100}%` }}
-          className={`absolute right-1 flex -translate-y-1/2 items-center gap-1.5 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${m.pnl >= 0 ? "bg-accent/15 text-accent" : "bg-destructive/15 text-destructive"}`}
-        >
-          <span>{m.side.toUpperCase()} {m.lots.toFixed(2)} @ {fmt(symbol, m.entry)}</span>
-          <span>{m.pnl >= 0 ? "+" : "-"}${Math.abs(m.pnl).toFixed(2)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function Trade() {
   const now = useNow(1000);
@@ -64,11 +30,19 @@ function Trade() {
   const { data: acc, activeAccount, isPending, error, refetch } = useAccount();
   const { symbols: watchSymbols, isFavourite, toggle } = useWatchlist();
   const [symbol, setSymbol] = useState("EURUSD");
+  const [timeframe, setTimeframe] = useState<ChartInterval>("5min");
   const [lots, setLots] = useState("0.10");
   const [sl, setSl] = useState("");
   const [tp, setTp] = useState("");
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [limitPrice, setLimitPrice] = useState("");
+  const feedSymbols = useMemo(
+    () => [...watchSymbols, symbol, ...(acc?.open ?? []).map((position) => position.symbol)],
+    [watchSymbols, symbol, acc?.open],
+  );
+  const { quotes: liveQuotes, isLoading: quotesLoading, realtime: realtimeStatus } = useMarketQuotes(feedSymbols);
+  const { candles, source: candleSource } = useMarketCandles(symbol, timeframe, 180);
+  const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const open = useServerFn(openTrade);
   const close = useServerFn(closeTrade);
   const placeLimit = useServerFn(placeLimitOrder);
@@ -120,16 +94,36 @@ function Trade() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const positions = acc?.open ?? [];
+  const positions = useMemo(() => acc?.open ?? [], [acc?.open]);
+  const chartPositions = useMemo(() => positions.filter((position) => position.symbol === symbol), [positions, symbol]);
   const pending = acc?.pending ?? [];
   const currency = acc?.account.currency ?? activeAccount?.currency ?? "USD";
   const leverage = Number(acc?.account.leverage ?? activeAccount?.leverage ?? 100);
   const readOnly = activeAccount?.access_role === "investor";
-  const floating = positions.reduce((s, p) => s + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), closePrice(p.symbol, p.side as Side, now)), 0);
+  const floating = positions.reduce((s, p) => {
+    const price = closePriceFromQuote(p.side as Side, quoteFor(quotes, p.symbol, now));
+    return s + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), price);
+  }, 0);
   const used = positions.reduce((s, p) => s + calcMargin(p.symbol, Number(p.lots), Number(p.open_price), leverage), 0);
   const balance = acc?.balance ?? 0;
   const equity = balance + floating;
-  const q = quote(symbol, now);
+  const q = quoteFor(quotes, symbol, now);
+  const streaming = isRealtimeSymbol(symbol) && realtimeStatus === "live";
+  const feedLabel = streaming
+    ? "Streaming"
+    : quotesLoading && q.source === "simulated"
+      ? "Connecting"
+      : q.source === "live"
+        ? "Live feed"
+        : q.source === "cached"
+          ? "Cached feed"
+          : "Simulated feed";
+  const feedTone =
+    q.source === "live"
+      ? "bg-accent/15 text-accent"
+      : q.source === "cached"
+        ? "bg-muted text-muted-foreground"
+        : "bg-amber-500/15 text-amber-700";
   const money = (n: number) => formatMoney(n, currency);
   const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
   const limitValid = orderType === "market" || (limitPrice.trim() !== "" && Number.isFinite(Number(limitPrice)) && Number(limitPrice) > 0);
@@ -144,7 +138,7 @@ function Trade() {
     setSymbol(next);
     setSl("");
     setTp("");
-    setLimitPrice(orderType === "limit" ? fmt(next, quote(next, Date.now()).mid) : "");
+    setLimitPrice(orderType === "limit" ? fmt(next, quoteFor(quotes, next, Date.now()).mid) : "");
   };
 
   if (isPending) return <main className="p-6" role="status">Loading your account…</main>;
@@ -212,7 +206,7 @@ function Trade() {
               </p>
             )}
             {watch.map((i) => {
-              const qq = quote(i.symbol, now);
+              const qq = quoteFor(quotes, i.symbol, now);
               return (
                 <div key={i.symbol} className={`flex items-center border-b last:border-0 ${symbol === i.symbol ? "bg-primary/15" : ""}`}>
                   <button
@@ -239,14 +233,50 @@ function Trade() {
         </aside>
 
         <section className="rounded-xl border p-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <h2 className="text-lg font-bold sm:text-xl">{symbol}</h2>
-              <p className="text-xs text-muted-foreground">{getInstrument(symbol).name} · last 10 min</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-bold sm:text-xl">{symbol}</h2>
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${feedTone}`}
+                  title={q.source === "simulated" ? "Live feed unavailable. Add TWELVE_DATA_API_KEY to the Worker, or check the provider plan and symbol coverage." : undefined}
+                >
+                  {feedLabel}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">{getInstrument(symbol).name} · {CHART_INTERVALS.find((item) => item.value === timeframe)?.label}</p>
             </div>
-            <span className="font-mono text-xl sm:text-2xl">{fmt(symbol, q.mid)}</span>
+            <div className="text-right">
+              <span className="font-mono text-xl sm:text-2xl">{fmt(symbol, q.mid)}</span>
+              <div className="font-mono text-[11px] text-muted-foreground">
+                B {fmt(symbol, q.bid)} · A {fmt(symbol, q.ask)}
+              </div>
+            </div>
           </div>
-          <Chart symbol={symbol} now={now} positions={positions.filter((p) => p.symbol === symbol)} />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1 rounded-md bg-muted p-0.5">
+              {CHART_INTERVALS.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setTimeframe(item.value)}
+                  className={`rounded px-2 py-1 text-xs ${timeframe === item.value ? "bg-background font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Candles: {candleSource ?? "loading"}
+            </span>
+          </div>
+          <PriceChart
+            symbol={symbol}
+            quote={q}
+            candles={candles}
+            interval={timeframe}
+            positions={chartPositions}
+          />
         </section>
 
         <section className="space-y-3 rounded-xl border p-4">
@@ -300,6 +330,7 @@ function Trade() {
         positions={positions}
         currency={currency}
         now={now}
+        quotes={quotes}
         readOnly={!!readOnly}
         busy={shut.isPending}
         onClose={(id) => shut.mutate(id)}

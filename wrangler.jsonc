@@ -9,5 +9,23 @@
     "SUPABASE_URL": "https://bfzizzfyxrjtautzvofu.supabase.co",
     "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_nPA9ZdfeACIrVGRAgGvo7Q_SRf4G4ld",
     "SUPABASE_PROJECT_ID": "bfzizzfyxrjtautzvofu"
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MARKET_STREAM",
+        "class_name": "MarketStream"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["XauStream"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["MarketStream"]
+    }
+  ]
 }

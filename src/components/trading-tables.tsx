@@ -1,6 +1,7 @@
 import type { Tables } from "@/integrations/supabase/types";
 import { fmt } from "@/lib/market";
-import { calcPnl, closePrice, type Side } from "@/lib/trading";
+import { quoteFor, type QuoteMap } from "@/lib/market-data";
+import { calcPnl, closePriceFromQuote, type Side } from "@/lib/trading";
 import { formatMoney } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
 
@@ -51,6 +52,7 @@ export function OpenPositionsSection({
   positions,
   currency,
   now,
+  quotes,
   readOnly,
   busy,
   onClose,
@@ -58,14 +60,15 @@ export function OpenPositionsSection({
   positions: Position[];
   currency: string;
   now: number;
+  quotes?: QuoteMap;
   readOnly: boolean;
   busy: boolean;
   onClose: (id: string) => void;
 }) {
-  const floating = positions.reduce(
-    (sum, p) => sum + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), closePrice(p.symbol, p.side as Side, now)),
-    0,
-  );
+  const floating = positions.reduce((sum, p) => {
+    const price = closePriceFromQuote(p.side as Side, quoteFor(quotes, p.symbol, now));
+    return sum + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), price);
+  }, 0);
   return (
     <section className="rounded-xl border">
       <h3 className="border-b px-4 py-3 font-bold">
@@ -80,7 +83,7 @@ export function OpenPositionsSection({
           <tbody>
             {positions.length === 0 && <tr><td colSpan={9} className="px-4 py-6 text-center text-muted-foreground">No open positions</td></tr>}
             {positions.map((p) => {
-              const cur = closePrice(p.symbol, p.side as Side, now);
+              const cur = closePriceFromQuote(p.side as Side, quoteFor(quotes, p.symbol, now));
               const pnl = calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), cur);
               return (
                 <tr key={p.id} className="border-t">
