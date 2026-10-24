@@ -116,6 +116,69 @@ export type Database = {
         }
         Relationships: []
       }
+      server_access_codes: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          id: string
+          max_uses: number
+          revoked_at: string | null
+          role: string
+          server_id: string
+          uses: number
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          max_uses?: number
+          revoked_at?: string | null
+          role?: string
+          server_id: string
+          uses?: number
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          max_uses?: number
+          revoked_at?: string | null
+          role?: string
+          server_id?: string
+          uses?: number
+        }
+        Relationships: []
+      }
+      server_members: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          role: string
+          server_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          role?: string
+          server_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          role?: string
+          server_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       trader_accounts: {
         Row: {
           created_at: string
@@ -155,6 +218,7 @@ export type Database = {
           login: number
           nickname: string
           server: string
+          server_id: string
           trader_password: string
           user_id: string | null
         }
@@ -172,6 +236,7 @@ export type Database = {
           login: number
           nickname?: string
           server?: string
+          server_id: string
           trader_password: string
           user_id?: string | null
         }
@@ -189,8 +254,69 @@ export type Database = {
           login?: number
           nickname?: string
           server?: string
+          server_id?: string
           trader_password?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      trading_servers: {
+        Row: {
+          account_types: string[]
+          created_at: string
+          currencies: string[]
+          default_account_type: string
+          default_currency: string
+          default_leverage: number
+          description: string
+          id: string
+          kind: string
+          leverages: number[]
+          max_balance: number
+          min_balance: number
+          name: string
+          slug: string
+          sort_order: number
+          status: string
+          visibility: string
+        }
+        Insert: {
+          account_types?: string[]
+          created_at?: string
+          currencies?: string[]
+          default_account_type?: string
+          default_currency?: string
+          default_leverage?: number
+          description?: string
+          id?: string
+          kind?: string
+          leverages?: number[]
+          max_balance?: number
+          min_balance?: number
+          name: string
+          slug: string
+          sort_order?: number
+          status?: string
+          visibility?: string
+        }
+        Update: {
+          account_types?: string[]
+          created_at?: string
+          currencies?: string[]
+          default_account_type?: string
+          default_currency?: string
+          default_leverage?: number
+          description?: string
+          id?: string
+          kind?: string
+          leverages?: number[]
+          max_balance?: number
+          min_balance?: number
+          name?: string
+          slug?: string
+          sort_order?: number
+          status?: string
+          visibility?: string
         }
         Relationships: []
       }
@@ -254,6 +380,18 @@ export type Database = {
           p_user: string
         }
         Returns: Json
+      }
+      redeem_server_access_code: {
+        Args: {
+          p_code: string
+          p_user: string
+        }
+        Returns: {
+          joined: boolean
+          role: string
+          server_id: string
+          server_name: string
+        }
       }
     }
     Enums: {

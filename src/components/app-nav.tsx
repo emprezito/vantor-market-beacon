@@ -16,6 +16,7 @@ export type NavAccount = {
   id: string;
   nickname: string;
   login: number;
+  server: string;
   currency: string;
   leverage: number;
 };
@@ -68,8 +69,8 @@ export function AccountPicker({
       {accounts.map((account) => (
         <option key={account.id} value={account.id} className="text-foreground">
           {compact
-            ? `${account.nickname} · #${account.login}`
-            : `${account.nickname} · #${account.login} · ${account.currency}`}
+            ? `${account.nickname} · #${account.login} · ${account.server}`
+            : `${account.nickname} · #${account.login} · ${account.server} · ${account.currency}`}
         </option>
       ))}
     </select>

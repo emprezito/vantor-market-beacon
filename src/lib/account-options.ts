@@ -19,6 +19,106 @@ export type NewAccountInput = {
   password: string;
 };
 
+export type TradingServer = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  kind: string;
+  status: string;
+  visibility: string;
+  account_types: string[];
+  currencies: string[];
+  leverages: number[];
+  min_balance: number;
+  max_balance: number;
+  default_account_type: string;
+  default_currency: string;
+  default_leverage: number;
+  sort_order: number;
+};
+
+export type ServerDefaults = {
+  accountType: string;
+  currency: string;
+  leverage: number;
+  balance: number;
+};
+
+export const TRADING_SERVER_SELECT =
+  "id, slug, name, description, kind, status, visibility, account_types, currencies, leverages, min_balance, max_balance, default_account_type, default_currency, default_leverage, sort_order";
+
+export function normalizeServer(server: TradingServer): TradingServer {
+  return {
+    ...server,
+    account_types: (server.account_types ?? []).map(String),
+    currencies: (server.currencies ?? []).map(String),
+    leverages: (server.leverages ?? []).map(Number).sort((a, b) => a - b),
+    min_balance: Number(server.min_balance),
+    max_balance: Number(server.max_balance),
+    default_leverage: Number(server.default_leverage),
+  };
+}
+
+export function validateServerId(value: unknown) {
+  if (typeof value !== "string" || !/^[0-9a-f-]{36}$/i.test(value)) {
+    throw new Error("Choose a trading server");
+  }
+  return value;
+}
+
+function serverOptions(server: TradingServer) {
+  const accountTypes = (server.account_types ?? []).map(String);
+  const currencies = (server.currencies ?? []).map(String);
+  const leverages = (server.leverages ?? []).map(Number).sort((a, b) => a - b);
+  return { accountTypes, currencies, leverages };
+}
+
+export function defaultsForServer(server: TradingServer): ServerDefaults {
+  const { accountTypes, currencies, leverages } = serverOptions(server);
+  const accountType = accountTypes.includes(server.default_account_type)
+    ? server.default_account_type
+    : accountTypes[0] ?? DEFAULT_ACCOUNT_TYPE;
+  const currency = currencies.includes(server.default_currency)
+    ? server.default_currency
+    : currencies[0] ?? DEFAULT_CURRENCY;
+  const leverage = leverages.includes(server.default_leverage)
+    ? server.default_leverage
+    : leverages.includes(DEFAULT_LEVERAGE)
+      ? DEFAULT_LEVERAGE
+      : leverages[0] ?? DEFAULT_LEVERAGE;
+  const min = Number.isFinite(Number(server.min_balance)) ? Number(server.min_balance) : BALANCE_MIN;
+  const max = Number.isFinite(Number(server.max_balance)) ? Number(server.max_balance) : BALANCE_MAX;
+  return {
+    accountType,
+    currency,
+    leverage,
+    balance: Math.round(Math.min(Math.max(DEFAULT_BALANCE, min), max) * 100) / 100,
+  };
+}
+
+export function validateNewAccountForServer(i: NewAccountInput, server: TradingServer) {
+  const account = validateNewAccount(i);
+  const { accountTypes, currencies, leverages } = serverOptions(server);
+  if (!accountTypes.includes(account.accountType)) {
+    throw new Error(`${server.name} does not offer ${account.accountType} accounts`);
+  }
+  if (!currencies.includes(account.currency)) {
+    throw new Error(`${server.name} does not support ${account.currency} accounts`);
+  }
+  if (!leverages.includes(account.leverage)) {
+    throw new Error(`${server.name} does not support 1:${account.leverage} leverage`);
+  }
+  const min = Number(server.min_balance);
+  const max = Number(server.max_balance);
+  if (account.balance < min || account.balance > max) {
+    throw new Error(
+      `Starting balance on ${server.name} must be between ${min.toLocaleString("en-US")} and ${max.toLocaleString("en-US")}`,
+    );
+  }
+  return account;
+}
+
 export function validateNewAccount(i: NewAccountInput) {
   const nickname = typeof i.nickname === "string" ? i.nickname.trim() : "";
   if (nickname.length < 1 || nickname.length > NICKNAME_MAX) throw new Error(`Nickname must be 1–${NICKNAME_MAX} characters`);

@@ -44,6 +44,8 @@ market data, live P/L, margin, stop loss and take profit.
 - Email/password registration and sign-in via Supabase Auth.
 - Any number of trading accounts per user.
 - Account creation form with:
+  - **Server**: an active public trading server; its profile controls the
+    available account types, currencies, leverage and balance range
   - **Nickname** (1–24 characters, required, shown everywhere)
   - **Account type**: Standard, Pro, Raw Spread
   - **Currency**: USD, EUR, GBP, NGN
@@ -51,9 +53,10 @@ market data, live P/L, margin, stop loss and take profit.
   - **Starting balance**: 100 – 1,000,000 (2 decimals)
   - **Trader password**: 8–64 characters
 - The server generates a random 8-digit MT5-style login and a separate investor
-  password; the trader gets both in the success toast.
+  password; the trader gets both in the success toast. Logins are unique per
+  server, so the same login can exist on different servers.
 - Each account owns its balance, positions and transaction history.
-- Link an existing account by login + password + server (trader or read-only
+- Link an existing account by server + login + password (trader or read-only
   investor role).
 - Account cards show nickname, type, login, per-account balance, leverage,
   free margin and equity. "Set Balance" adjusts funds via deposit/withdraw.
@@ -221,9 +224,10 @@ API layer.
 
 | Function | Module | Input | Behavior |
 | --- | --- | --- | --- |
-| `listMyAccounts` | `src/lib/accounts.functions.ts` | – | Lists owned accounts with `nickname`, type, login, server, role, balance, currency, leverage |
-| `openDemoAccount` | `src/lib/accounts.functions.ts` | nickname, accountType, currency, leverage, balance, password | Creates a trading account with generated login/investor password and an `initial` transaction |
-| `claimTradingAccount` | `src/lib/accounts.functions.ts` | login, password, server | Links an unowned account, or returns the role if already owned |
+| `listTradingServers` | `src/lib/accounts.functions.ts` | – | Lists active public servers with their allowed account options and defaults |
+| `listMyAccounts` | `src/lib/accounts.functions.ts` | – | Lists owned accounts with `nickname`, type, login, `server_id`, server, role, balance, currency, leverage |
+| `openDemoAccount` | `src/lib/accounts.functions.ts` | serverId, nickname, accountType, currency, leverage, balance, password | Creates a trading account on the selected server with generated login/investor password and an `initial` transaction |
+| `claimTradingAccount` | `src/lib/accounts.functions.ts` | serverId, login, password | Links an unowned account on that server, or returns the role if already owned |
 | `getMarketQuotes` | `src/lib/market.functions.ts` | symbols[] (max 21) | Server-side quote feed; per-symbol cache, 60s TTL, simulated fallback |
 | `getMarketCandles` | `src/lib/market.functions.ts` | symbol, interval, points (20–500) | OHLC candles for the chart; provider cache and simulated fallback |
 | `getAccount` | `src/lib/trading.functions.ts` | accountId | Snapshot: account, balance, open/closed positions (100), pending orders, transactions (100), quotes for open/pending symbols; auto-closes triggered SL/TP and fills due limits |
@@ -280,8 +284,27 @@ SQL lives in `supabase/migrations/`:
 | `20261020010000_account_nickname.sql` | `nickname` column (NOT NULL, default `Demo account`, 1–24 check), backfills existing rows |
 | `20261020020000_server_name.sql` | Renames the server default to `Vantor-server 1` and updates existing rows |
 | `20261023000000_limit_orders.sql` | `pending_orders` table + RLS, and RPC actions for placing, cancelling and filling limit orders |
+| `20261024000000_trading_servers.sql` | `trading_servers` table + RLS, seeds `vantor-1`, adds `trading_accounts.server_id`, and moves login uniqueness to `(server_id, login)` |
 
 ### Tables
+
+**`trading_servers`** — logical server/tenant profiles. Only active public
+servers are readable by authenticated users; paused servers stop accepting new
+accounts and claims while existing accounts keep trading.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | PK |
+| `slug` / `name` | text | Stable slug and display name |
+| `description` | text | Shown in the account form |
+| `kind` | text | `vantor` / `partner` |
+| `status` | text | `active` / `paused` |
+| `visibility` | text | `public` / `private` (`private` reserved for Phase 2) |
+| `account_types` / `currencies` / `leverages` | arrays | Allowed account options |
+| `min_balance` / `max_balance` | numeric(14,2) | Balance range (100–1,000,000) |
+| `default_account_type` / `default_currency` / `default_leverage` | | Form defaults |
+| `sort_order` | integer | Picker order |
+| `created_at` | timestamptz | |
 
 **`trading_accounts`** — one row per trading account.
 
@@ -290,11 +313,12 @@ SQL lives in `supabase/migrations/`:
 | `id` | uuid | PK |
 | `user_id` | uuid | Owner (nullable until claimed) |
 | `issued_by` | uuid | Legacy issuer reference |
-| `login` | bigint | Unique MT5-style login |
+| `login` | bigint | MT5-style login, unique per server |
+| `server_id` | uuid | FK to `trading_servers`; immutable on the account |
 | `nickname` | text | NOT NULL, 1–24 chars, default `Demo account` |
 | `label` | text | Account type (Standard / Pro / Raw Spread) |
 | `kind` | text | `demo` / `real` |
-| `server` | text | Default `Vantor-server 1` |
+| `server` | text | Display name snapshot of the selected server |
 | `trader_password` / `investor_password` | text | Plain platform credentials |
 | `access_role` | text | `trader` or `investor` |
 | `balance` | numeric(14,2) | Per-account balance |
@@ -333,6 +357,7 @@ RLS is enabled on all tables. Policies allow authenticated users to `SELECT`:
 
 - their own wallets, positions, transactions, pending orders and trading
   accounts,
+- active public trading servers,
 - trading accounts where they are the issuer (legacy),
 - trader links where they are the owner (legacy).
 
@@ -344,6 +369,7 @@ writes go through server functions using the service role.
 - Partial index on open positions by user and by account.
 - Partial index on pending orders by account.
 - Transactions by user and by account (created_at desc).
+- Trading accounts by server, plus unique `(server_id, login)`.
 - Trading accounts by owner and issuer.
 
 ---
@@ -617,8 +643,9 @@ bun run db:apply supabase/migrations/20261020010000_account_nickname.sql
 ```
 
 `scripts/apply-schema.mjs` executes the file as a single SQL batch. The
-nickname and per-account migrations are written to be re-runnable; the initial
-migration uses `if not exists` / `drop ... if exists` guards.
+nickname, per-account and trading-server migrations are written to be
+re-runnable; the initial migration uses `if not exists` / `drop ... if exists`
+guards.
 
 After changing tables or RPC signatures, update
 `src/integrations/supabase/types.ts` manually (or regenerate with the Supabase
@@ -738,6 +765,10 @@ Cloudflare Worker above is the current production deployment.
 
 ## Known limitations and notes
 
+- **Servers:** Phase 1 supports active public servers only. Private/invite
+  servers, partner administration, `server_members`/access codes and
+  firm-provisioned accounts are Phase 2. The `visibility` and `kind` columns are
+  stored for that work but do not yet grant any extra access.
 - **Limit fills:** pending orders are evaluated only when the account is polled
   (`getAccount`, every 5 seconds while the terminal is open). There is no
   background scheduler, so fills can be delayed while the app is closed.

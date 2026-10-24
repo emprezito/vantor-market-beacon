@@ -1,9 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { claimTradingAccount, listMyAccounts, openDemoAccount } from "@/lib/accounts.functions";
+import {
+  claimTradingAccount,
+  listMyAccounts,
+  listTradingServers,
+  openDemoAccount,
+} from "@/lib/accounts.functions";
 import { moveFunds } from "@/lib/trading.functions";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import {
@@ -14,6 +19,7 @@ import {
   DEFAULT_CURRENCY,
   DEFAULT_LEVERAGE,
   LEVERAGES,
+  defaultsForServer,
   formatMoney,
 } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
@@ -36,11 +42,17 @@ function AccountsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const list = useServerFn(listMyAccounts);
+  const listServers = useServerFn(listTradingServers);
   const openDemo = useServerFn(openDemoAccount);
   const claim = useServerFn(claimTradingAccount);
   const move = useServerFn(moveFunds);
   const [, setActiveAccount] = useActiveAccount();
   const { data, isLoading } = useQuery({ queryKey: ["my-accounts"], queryFn: () => list() });
+  const serversQuery = useQuery({
+    queryKey: ["trading-servers"],
+    queryFn: () => listServers(),
+    staleTime: 5 * 60_000,
+  });
 
   const [openPanel, setOpenPanel] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -48,7 +60,8 @@ function AccountsPage() {
   const [newBalance, setNewBalance] = useState("");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
-  const [server, setServer] = useState("");
+  const [serverId, setServerId] = useState("");
+  const [claimServerId, setClaimServerId] = useState("");
   const [nickname, setNickname] = useState("");
   const [accountType, setAccountType] = useState<string>(DEFAULT_ACCOUNT_TYPE);
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
@@ -56,23 +69,50 @@ function AccountsPage() {
   const [size, setSize] = useState(String(DEFAULT_BALANCE));
   const [traderPass, setTraderPass] = useState("");
 
+  const servers = serversQuery.data ?? [];
+  const selectedServer = servers.find((server) => server.id === serverId) ?? servers[0] ?? null;
+  const claimServer = servers.find((server) => server.id === claimServerId) ?? servers[0] ?? null;
+  const accountTypeOptions = selectedServer?.account_types ?? ACCOUNT_TYPES;
+  const currencyOptions = selectedServer?.currencies ?? CURRENCIES;
+  const leverageOptions = selectedServer?.leverages ?? LEVERAGES;
+  const minBalance = Number(selectedServer?.min_balance ?? 100);
+  const maxBalance = Number(selectedServer?.max_balance ?? 1000000);
+
+  useEffect(() => {
+    const available = serversQuery.data;
+    if (!available?.length) return;
+    const fallback = available[0]!.id;
+    setServerId((current) => (current && available.some((server) => server.id === current) ? current : fallback));
+    setClaimServerId((current) => (current && available.some((server) => server.id === current) ? current : fallback));
+  }, [serversQuery.data]);
+
+  useEffect(() => {
+    if (!selectedServer) return;
+    const defaults = defaultsForServer(selectedServer);
+    setAccountType(defaults.accountType);
+    setCurrency(defaults.currency);
+    setLeverage(defaults.leverage);
+    setSize(String(defaults.balance));
+  }, [selectedServer]);
+
   const openMut = useMutation({
-    mutationFn: () => openDemo({ data: { nickname, accountType, currency, leverage, balance: Number(size), password: traderPass } }),
+    mutationFn: () => openDemo({ data: { nickname, accountType, currency, leverage, balance: Number(size), password: traderPass, serverId: selectedServer?.id ?? "" } }),
     onSuccess: (acc) => {
       qc.invalidateQueries({ queryKey: ["my-accounts"] });
       setActiveAccount(acc.id);
       setOpenPanel(false);
       setNickname("");
       setTraderPass("");
-      toast.success(`Account "${acc.nickname}" (#${acc.login}) created. Trader password: ${acc.trader_password} — investor password: ${acc.investor_password} — server: ${acc.server}`);
+      toast.success(`Account "${acc.nickname}" (#${acc.login}) created on ${acc.server}. Trader password: ${acc.trader_password} — investor password: ${acc.investor_password}`);
     },
     onError: (e) => toast.error(e.message),
   });
   const claimMut = useMutation({
-    mutationFn: () => claim({ data: { login, password, server } }),
+    mutationFn: () => claim({ data: { login, password, serverId: claimServer?.id ?? "" } }),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["my-accounts"] });
-      setOpenPanel(false); setLogin(""); setPassword(""); setServer("");
+      qc.invalidateQueries({ queryKey: ["account"] });
+      setOpenPanel(false); setLogin(""); setPassword("");
       toast.success(r.role === "investor" ? "Account linked with investor (read-only) access" : "Account linked — you can trade on it now");
     },
     onError: (e) => toast.error(e.message),
@@ -115,34 +155,68 @@ function AccountsPage() {
                 <Label htmlFor="anick">Nickname</Label>
                 <Input id="anick" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="e.g. Scalping account" maxLength={24} required />
               </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="aserver">Trading server</Label>
+                <select
+                  id="aserver"
+                  className={inputCls}
+                  value={selectedServer?.id ?? ""}
+                  onChange={(e) => setServerId(e.target.value)}
+                  disabled={serversQuery.isPending || servers.length === 0}
+                  required
+                >
+                  {servers.length === 0 && (
+                    <option value="">{serversQuery.isPending ? "Loading servers…" : "No servers available"}</option>
+                  )}
+                  {servers.map((server) => (
+                    <option key={server.id} value={server.id}>{server.name}</option>
+                  ))}
+                </select>
+                {selectedServer && (
+                  <div className="mt-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                    <p>{selectedServer.description}</p>
+                    <p className="mt-1">
+                      {selectedServer.account_types.join(" · ")} · {selectedServer.currencies.join(" / ")} · leverage up to 1:
+                      {Math.max(...selectedServer.leverages)} · balance {minBalance.toLocaleString("en-US")}–
+                      {maxBalance.toLocaleString("en-US")}
+                    </p>
+                  </div>
+                )}
+                {serversQuery.error && (
+                  <p role="alert" className="mt-1 text-xs text-destructive">{(serversQuery.error as Error).message}</p>
+                )}
+              </div>
               <div>
                 <Label htmlFor="atype">Account type</Label>
                 <select id="atype" className={inputCls} value={accountType} onChange={(e) => setAccountType(e.target.value)}>
-                  {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {accountTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div>
                 <Label htmlFor="acur">Currency</Label>
                 <select id="acur" className={inputCls} value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {currencyOptions.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
                 <Label htmlFor="alev">Leverage</Label>
                 <select id="alev" className={inputCls} value={leverage} onChange={(e) => setLeverage(Number(e.target.value))}>
-                  {LEVERAGES.map((l) => <option key={l} value={l}>1:{l}</option>)}
+                  {leverageOptions.map((l) => <option key={l} value={l}>1:{l}</option>)}
                 </select>
               </div>
               <div>
                 <Label htmlFor="asize">Starting balance ({currency})</Label>
                 <Input id="asize" inputMode="decimal" value={size} onChange={(e) => setSize(e.target.value)} />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Allowed: {minBalance.toLocaleString("en-US")}–{maxBalance.toLocaleString("en-US")} {currency}
+                </p>
               </div>
               <div className="sm:col-span-2">
                 <Label htmlFor="apass">Trader password</Label>
                 <Input id="apass" type="text" value={traderPass} onChange={(e) => setTraderPass(e.target.value)} placeholder="Min. 8 characters" />
               </div>
               <div className="sm:col-span-2">
-                <Button type="submit" disabled={openMut.isPending}>
+                <Button type="submit" disabled={openMut.isPending || !selectedServer}>
                   {openMut.isPending ? "Creating…" : "Create account"}
                 </Button>
                 <p className="mt-2 text-xs text-muted-foreground">An investor password is generated automatically after creation.</p>
@@ -165,9 +239,23 @@ function AccountsPage() {
               </div>
               <div>
                 <Label htmlFor="srv">Server</Label>
-                <Input id="srv" value={server} onChange={(e) => setServer(e.target.value)} placeholder="e.g. Vantor-server 1" />
+                <select
+                  id="srv"
+                  className={inputCls}
+                  value={claimServer?.id ?? ""}
+                  onChange={(e) => setClaimServerId(e.target.value)}
+                  disabled={serversQuery.isPending || servers.length === 0}
+                  required
+                >
+                  {servers.length === 0 && (
+                    <option value="">{serversQuery.isPending ? "Loading servers…" : "No servers available"}</option>
+                  )}
+                  {servers.map((server) => (
+                    <option key={server.id} value={server.id}>{server.name}</option>
+                  ))}
+                </select>
               </div>
-              <Button type="submit" disabled={claimMut.isPending}>{claimMut.isPending ? "Linking…" : "Log in"}</Button>
+              <Button type="submit" disabled={claimMut.isPending || !claimServer}>{claimMut.isPending ? "Linking…" : "Log in"}</Button>
             </form>
           </div>
         </section>

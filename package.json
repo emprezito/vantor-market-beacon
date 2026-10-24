@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:apply": "node scripts/apply-schema.mjs",
+    "probe:insightsentry": "node scripts/probe-insightsentry.mjs",
     "deploy": "vite build && wrangler deploy",
     "preview:cloudflare": "vite build && wrangler dev"
   },

@@ -9,6 +9,8 @@
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
 
+- Trading accounts belong to a `trading_servers` row; logins are unique per server (`server_id, login`), not globally. New accounts and claims may only select active public servers, `server_id` is immutable after creation, and `server` is a display-name snapshot.
+- Phase 1 is public servers only. Private/invite servers, `server_members`/access codes and partner administration are Phase 2; do not enforce `visibility` or `kind` beyond the active-public checks until those membership tables exist.
 - Mount trading notifications and the identity-transition cache listener once in the root shell so all pages share consistent feedback and session refresh.
 - Keep public navigation session-aware and route registration mode through validated auth search parameters so account buttons open the intended form.
 - Account pages share a browser-safe account hook outside route modules to avoid route code-splitting dependencies.
