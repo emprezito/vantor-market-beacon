@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_roles: {
+        Row: {
+          created_at: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       positions: {
         Row: {
           account_id: string | null
@@ -113,45 +131,6 @@ export type Database = {
           take_profit?: number | null
           triggered_at?: string | null
           user_id?: string
-        }
-        Relationships: []
-      }
-      server_access_codes: {
-        Row: {
-          code: string
-          created_at: string
-          created_by: string | null
-          expires_at: string | null
-          id: string
-          max_uses: number
-          revoked_at: string | null
-          role: string
-          server_id: string
-          uses: number
-        }
-        Insert: {
-          code: string
-          created_at?: string
-          created_by?: string | null
-          expires_at?: string | null
-          id?: string
-          max_uses?: number
-          revoked_at?: string | null
-          role?: string
-          server_id: string
-          uses?: number
-        }
-        Update: {
-          code?: string
-          created_at?: string
-          created_by?: string | null
-          expires_at?: string | null
-          id?: string
-          max_uses?: number
-          revoked_at?: string | null
-          role?: string
-          server_id?: string
-          uses?: number
         }
         Relationships: []
       }
@@ -380,18 +359,6 @@ export type Database = {
           p_user: string
         }
         Returns: Json
-      }
-      redeem_server_access_code: {
-        Args: {
-          p_code: string
-          p_user: string
-        }
-        Returns: {
-          joined: boolean
-          role: string
-          server_id: string
-          server_name: string
-        }
       }
     }
     Enums: {

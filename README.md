@@ -56,10 +56,28 @@ market data, live P/L, margin, stop loss and take profit.
   password; the trader gets both in the success toast. Logins are unique per
   server, so the same login can exist on different servers.
 - Each account owns its balance, positions and transaction history.
-- Link an existing account by server + login + password (trader or read-only
-  investor role).
 - Account cards show nickname, type, login, per-account balance, leverage,
   free margin and equity. "Set Balance" adjusts funds via deposit/withdraw.
+
+### Partner servers
+
+- Only users with the `partner` role in `app_roles` can open `/partner` and
+  `/partner/accounts` and see the Partner and Accounts navigation. Partners see
+  only those partner pages; trader tabs are hidden and redirect back to
+  `/partner`. Other signed-in users never see the partner navigation.
+- Partners can create a partner server from `/partner` and become its owner.
+  Public servers appear in the trader account form; private servers stay hidden
+  from traders and are managed only through the partner pages.
+- Owners and admins manage server settings: name, description, active/paused
+  status and visibility.
+- Members can be removed by an owner, and admins can remove regular members.
+  The owner cannot be removed.
+- Owners and admins can create trading accounts on their server using the
+  server's allowed types, currencies, leverage and balance range. The sidebar
+  Accounts page creates normal accounts owned by the partner and lists server
+  accounts in the same card layout as the trader accounts page. Each card
+  expands to show account details and can reset the trading password.
+- Paused servers reject new accounts while existing accounts keep trading.
 
 ### Trading
 
@@ -117,20 +135,20 @@ market data, live P/L, margin, stop loss and take profit.
 
 ## Tech stack
 
-| Layer | Choice |
-| --- | --- |
-| UI | React 19, Tailwind CSS v4, Radix UI / shadcn-style components, lucide-react |
-| Routing / SSR | TanStack Router + TanStack Start |
-| Data fetching | TanStack Query (5-second account/quote poll, 60-second candle poll) |
-| Forms / feedback | Plain React forms, Sonner toasts |
-| Charts | Lightweight Charts 5 (TradingView) |
-| Market data | Twelve Data REST API, server-side proxy with caching and simulated fallback |
-| Auth | Supabase Auth (`@supabase/supabase-js`) |
-| Database | Supabase Postgres with RLS |
-| Validation | Custom validators in `src/lib/*` (no zod on the hot path) |
-| Tests | Vitest + Testing Library (jsdom) |
-| Build / hosting | Vite + Nitro Cloudflare target, Wrangler |
-| Language | TypeScript (strict, path alias `@/` → `src/`) |
+| Layer            | Choice                                                                      |
+| ---------------- | --------------------------------------------------------------------------- |
+| UI               | React 19, Tailwind CSS v4, Radix UI / shadcn-style components, lucide-react |
+| Routing / SSR    | TanStack Router + TanStack Start                                            |
+| Data fetching    | TanStack Query (5-second account/quote poll, 60-second candle poll)         |
+| Forms / feedback | Plain React forms, Sonner toasts                                            |
+| Charts           | Lightweight Charts 5 (TradingView)                                          |
+| Market data      | Twelve Data REST API, server-side proxy with caching and simulated fallback |
+| Auth             | Supabase Auth (`@supabase/supabase-js`)                                     |
+| Database         | Supabase Postgres with RLS                                                  |
+| Validation       | Custom validators in `src/lib/*` (no zod on the hot path)                   |
+| Tests            | Vitest + Testing Library (jsdom)                                            |
+| Build / hosting  | Vite + Nitro Cloudflare target, Wrangler                                    |
+| Language         | TypeScript (strict, path alias `@/` → `src/`)                               |
 
 ---
 
@@ -195,20 +213,24 @@ Key properties:
 
 ## Routes
 
-| Path | SSR | Description |
-| --- | --- | --- |
-| `/` | yes | Public marketing landing page (quotes, features, account types) |
-| `/auth?mode=in\|up` | yes | Sign in / register; mode is validated from the query string |
-| `/accounts` | no | Account list, creation form, account linking |
-| `/trade` | no | Trading terminal (chart, order panel, positions, pending orders) |
-| `/orders` | no | Open positions and pending limit orders |
-| `/profile` | no | Account summary, active-account switcher and deposit dialog |
-| `/history` | no | Closed trades and realised P/L for the active account |
-| `/wallet` | no | Per-account deposits, withdrawals and transactions |
+| Path                | SSR | Description                                                      |
+| ------------------- | --- | ---------------------------------------------------------------- |
+| `/`                 | yes | Public marketing landing page (quotes, features, account types)  |
+| `/auth?mode=in\|up` | yes | Sign in / register; mode is validated from the query string      |
+| `/accounts`         | no  | Account list and creation form                                   |
+| `/trade`            | no  | Trading terminal (chart, order panel, positions, pending orders) |
+| `/orders`           | no  | Open positions and pending limit orders                          |
+| `/profile`          | no  | Account summary, active-account switcher and deposit dialog      |
+| `/history`          | no  | Closed trades and realised P/L for the active account            |
+| `/wallet`           | no  | Per-account deposits, withdrawals and transactions               |
+| `/partner`          | no  | Partner-only server settings and members                         |
+| `/partner/accounts` | no  | Partner-only account creation, details and password management   |
 
 The `_authenticated` layout route disables SSR (`ssr: false`) and redirects to
-`/auth` when there is no Supabase user. It renders the signed-in app shell:
-desktop sidebar, mobile hamburger header and bottom navigation.
+`/auth` when there is no Supabase user. It also reads `app_roles` and keeps
+partner-role users on `/partner` routes while sending everyone else away from
+them. It renders the signed-in app shell: desktop sidebar, mobile hamburger
+header and bottom navigation.
 
 The root route (`src/routes/__root.tsx`) owns the `QueryClientProvider`,
 toasts, error boundary, 404 page and a Supabase auth-state listener that
@@ -219,27 +241,36 @@ invalidates the router and query cache on sign-in/out.
 ## Server functions and API
 
 All are TanStack Start server functions (`createServerFn`, POST) protected by
-`requireSupabaseAuth`. Types are inferred end-to-end; there is no separate REST
-API layer.
+`requireSupabaseAuth`. Partner management functions additionally require the
+`partner` app role. Types are inferred end-to-end; there is no separate REST API
+layer.
 
-| Function | Module | Input | Behavior |
-| --- | --- | --- | --- |
-| `listTradingServers` | `src/lib/accounts.functions.ts` | – | Lists active public servers with their allowed account options and defaults |
-| `listMyAccounts` | `src/lib/accounts.functions.ts` | – | Lists owned accounts with `nickname`, type, login, `server_id`, server, role, balance, currency, leverage |
-| `openDemoAccount` | `src/lib/accounts.functions.ts` | serverId, nickname, accountType, currency, leverage, balance, password | Creates a trading account on the selected server with generated login/investor password and an `initial` transaction |
-| `claimTradingAccount` | `src/lib/accounts.functions.ts` | serverId, login, password | Links an unowned account on that server, or returns the role if already owned |
-| `getMarketQuotes` | `src/lib/market.functions.ts` | symbols[] (max 21) | Server-side quote feed; per-symbol cache, 60s TTL, simulated fallback |
-| `getMarketCandles` | `src/lib/market.functions.ts` | symbol, interval, points (20–500) | OHLC candles for the chart; provider cache and simulated fallback |
-| `getAccount` | `src/lib/trading.functions.ts` | accountId | Snapshot: account, balance, open/closed positions (100), pending orders, transactions (100), quotes for open/pending symbols; auto-closes triggered SL/TP and fills due limits |
-| `openTrade` | `src/lib/trading.functions.ts` | accountId, symbol, side, lots, stopLoss, takeProfit | Validates, checks free margin, inserts position atomically |
-| `placeLimitOrder` | `src/lib/trading.functions.ts` | accountId, symbol, side, lots, limitPrice, stopLoss, takeProfit | Validates pending price/stop sides and inserts a pending order |
-| `cancelPendingOrder` | `src/lib/trading.functions.ts` | accountId, id | Cancels one pending order atomically |
-| `closeTrade` | `src/lib/trading.functions.ts` | accountId, id | Closes one position at the current price, credits P/L |
-| `moveFunds` | `src/lib/trading.functions.ts` | accountId, kind (`deposit`/`withdraw`), amount | Applies funds and writes a transaction; withdraws respect used margin |
+| Function                      | Module                          | Input                                                                  | Behavior                                                                                                                                                                       |
+| ----------------------------- | ------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `listTradingServers`          | `src/lib/accounts.functions.ts` | –                                                                      | Lists active public servers with allowed options and defaults                                                                                                                  |
+| `listMyAccounts`              | `src/lib/accounts.functions.ts` | –                                                                      | Lists owned accounts with `nickname`, type, login, `server_id`, server, role, balance, currency, leverage                                                                      |
+| `openDemoAccount`             | `src/lib/accounts.functions.ts` | serverId, nickname, accountType, currency, leverage, balance, password | Creates a trading account on an accessible active server with generated login/investor password and an `initial` transaction                                                   |
+| `listMyServers`               | `src/lib/partner.functions.ts`  | –                                                                      | Lists servers where the user is a member, with role and member/account counts                                                                                                  |
+| `createPartnerServer`         | `src/lib/partner.functions.ts`  | name, slug?, description?, visibility?                                 | Creates a public/private partner server and makes the caller its owner                                                                                                         |
+| `updatePartnerServer`         | `src/lib/partner.functions.ts`  | serverId, name?, description?, status?, visibility?                    | Owner/admin server settings update                                                                                                                                             |
+| `listServerMembers`           | `src/lib/partner.functions.ts`  | serverId                                                               | Lists members with roles and auth emails                                                                                                                                       |
+| `removeServerMember`          | `src/lib/partner.functions.ts`  | serverId, userId                                                       | Removes a member; admins cannot remove admins and owners cannot be removed                                                                                                     |
+| `listServerAccounts`          | `src/lib/partner.functions.ts`  | serverId                                                               | Lists safe account fields for a server, without credentials                                                                                                                    |
+| `changeServerAccountPassword` | `src/lib/partner.functions.ts`  | serverId, accountId, password                                          | Owner/admin resets the trader password for an account on that server                                                                                                           |
+| `getMarketQuotes`             | `src/lib/market.functions.ts`   | symbols[] (max 21)                                                     | Server-side quote feed; per-symbol cache, 60s TTL, simulated fallback                                                                                                          |
+| `getMarketCandles`            | `src/lib/market.functions.ts`   | symbol, interval, points (20–500)                                      | OHLC candles for the chart; provider cache and simulated fallback                                                                                                              |
+| `getAccount`                  | `src/lib/trading.functions.ts`  | accountId                                                              | Snapshot: account, balance, open/closed positions (100), pending orders, transactions (100), quotes for open/pending symbols; auto-closes triggered SL/TP and fills due limits |
+| `openTrade`                   | `src/lib/trading.functions.ts`  | accountId, symbol, side, lots, stopLoss, takeProfit                    | Validates, checks free margin, inserts position atomically                                                                                                                     |
+| `placeLimitOrder`             | `src/lib/trading.functions.ts`  | accountId, symbol, side, lots, limitPrice, stopLoss, takeProfit        | Validates pending price/stop sides and inserts a pending order                                                                                                                 |
+| `cancelPendingOrder`          | `src/lib/trading.functions.ts`  | accountId, id                                                          | Cancels one pending order atomically                                                                                                                                           |
+| `closeTrade`                  | `src/lib/trading.functions.ts`  | accountId, id                                                          | Closes one position at the current price, credits P/L                                                                                                                          |
+| `moveFunds`                   | `src/lib/trading.functions.ts`  | accountId, kind (`deposit`/`withdraw`), amount                         | Applies funds and writes a transaction; withdraws respect used margin                                                                                                          |
 
 Shared helpers live in `src/lib/trading.ts` (pricing math),
 `src/lib/trading-validation.ts` (order/fund limits),
 `src/lib/account-options.ts` (account choices, validation, currency formatting),
+`src/lib/server-accounts.server.ts` (server lookup, membership checks and account insert),
+`src/lib/partner.ts` (role and slug helpers),
 `src/lib/market.ts` (instrument catalog and deterministic fallback prices),
 `src/lib/market-data.ts` (feed types, provider symbol map, synthetic candles) and
 `src/lib/market-data.server.ts` (Twelve Data client, caches, fallback).
@@ -277,54 +308,87 @@ Properties:
 
 SQL lives in `supabase/migrations/`:
 
-| Migration | Purpose |
-| --- | --- |
-| `20261019000000_init.sql` | Initial schema, RLS, grants, signup trigger, wallet-based RPC (superseded) |
-| `20261020000000_per_account_funds.sql` | Per-account balances/currency/leverage, `account_id` on positions and transactions, account-scoped RPC |
-| `20261020010000_account_nickname.sql` | `nickname` column (NOT NULL, default `Demo account`, 1–24 check), backfills existing rows |
-| `20261020020000_server_name.sql` | Renames the server default to `Vantor-server 1` and updates existing rows |
-| `20261023000000_limit_orders.sql` | `pending_orders` table + RLS, and RPC actions for placing, cancelling and filling limit orders |
-| `20261024000000_trading_servers.sql` | `trading_servers` table + RLS, seeds `vantor-1`, adds `trading_accounts.server_id`, and moves login uniqueness to `(server_id, login)` |
+| Migration                                 | Purpose                                                                                                                                |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `20261019000000_init.sql`                 | Initial schema, RLS, grants, signup trigger, wallet-based RPC (superseded)                                                             |
+| `20261020000000_per_account_funds.sql`    | Per-account balances/currency/leverage, `account_id` on positions and transactions, account-scoped RPC                                 |
+| `20261020010000_account_nickname.sql`     | `nickname` column (NOT NULL, default `Demo account`, 1–24 check), backfills existing rows                                              |
+| `20261020020000_server_name.sql`          | Renames the server default to `Vantor-server 1` and updates existing rows                                                              |
+| `20261023000000_limit_orders.sql`         | `pending_orders` table + RLS, and RPC actions for placing, cancelling and filling limit orders                                         |
+| `20261024000000_trading_servers.sql`      | `trading_servers` table + RLS, seeds `vantor-1`, adds `trading_accounts.server_id`, and moves login uniqueness to `(server_id, login)` |
+| `20261024010000_partner_servers.sql`      | `server_members`, private-server visibility and owner/admin roles (also introduced the now-unused invite-code table)                   |
+| `20261024020000_partner_role.sql`         | `app_roles` table + RLS, and seeds the `partner` role for the approved account                                                         |
+| `20261024030000_hide_private_servers.sql` | Hides private servers from trader reads; only active public servers remain client-visible                                              |
 
 ### Tables
 
-**`trading_servers`** — logical server/tenant profiles. Only active public
-servers are readable by authenticated users; paused servers stop accepting new
-accounts and claims while existing accounts keep trading.
+**`trading_servers`** — logical server/tenant profiles. Active public servers
+are readable by all authenticated users. Private servers stay hidden from
+traders and are managed through the partner pages. Paused servers reject new
+accounts while existing accounts keep trading.
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid | PK |
-| `slug` / `name` | text | Stable slug and display name |
-| `description` | text | Shown in the account form |
-| `kind` | text | `vantor` / `partner` |
-| `status` | text | `active` / `paused` |
-| `visibility` | text | `public` / `private` (`private` reserved for Phase 2) |
-| `account_types` / `currencies` / `leverages` | arrays | Allowed account options |
-| `min_balance` / `max_balance` | numeric(14,2) | Balance range (100–1,000,000) |
-| `default_account_type` / `default_currency` / `default_leverage` | | Form defaults |
-| `sort_order` | integer | Picker order |
-| `created_at` | timestamptz | |
+| Column                                                           | Type          | Notes                                          |
+| ---------------------------------------------------------------- | ------------- | ---------------------------------------------- |
+| `id`                                                             | uuid          | PK                                             |
+| `slug` / `name`                                                  | text          | Stable slug and display name                   |
+| `description`                                                    | text          | Shown in the account form                      |
+| `kind`                                                           | text          | `vantor` / `partner`                           |
+| `status`                                                         | text          | `active` / `paused`                            |
+| `visibility`                                                     | text          | `public` (everyone) / `private` (members only) |
+| `account_types` / `currencies` / `leverages`                     | arrays        | Allowed account options                        |
+| `min_balance` / `max_balance`                                    | numeric(14,2) | Balance range (100–1,000,000)                  |
+| `default_account_type` / `default_currency` / `default_leverage` |               | Form defaults                                  |
+| `sort_order`                                                     | integer       | Picker order                                   |
+| `created_at`                                                     | timestamptz   |                                                |
+
+**`server_members`** — user membership and role on a server.
+
+| Column       | Type        | Notes                            |
+| ------------ | ----------- | -------------------------------- |
+| `server_id`  | uuid        | FK to `trading_servers`, cascade |
+| `user_id`    | uuid        | FK to `auth.users`, cascade      |
+| `role`       | text        | `owner` / `admin` / `member`     |
+| `created_by` | uuid        | Inviter/owner reference          |
+| `created_at` | timestamptz |                                  |
+
+The primary key is `(server_id, user_id)`, and a partial unique index allows only
+one owner per server. Authenticated users can select only their own membership
+rows; all writes use the service role.
+
+**`server_access_codes`** — legacy invite-code table from Phase 2. The app no
+longer creates or redeems codes; the table and redemption RPC remain unused and
+are not exposed to clients.
+
+**`app_roles`** — application-level access roles, separate from server membership.
+
+| Column       | Type        | Notes                           |
+| ------------ | ----------- | ------------------------------- |
+| `user_id`    | uuid        | PK, FK to `auth.users`, cascade |
+| `role`       | text        | `partner` / `platform_admin`    |
+| `created_at` | timestamptz |                                 |
+
+Users can select only their own row through RLS; all writes use the service
+role. The migration seeds `partner` for `emperorakporhiunu@gmail.com`.
 
 **`trading_accounts`** — one row per trading account.
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid | PK |
-| `user_id` | uuid | Owner (nullable until claimed) |
-| `issued_by` | uuid | Legacy issuer reference |
-| `login` | bigint | MT5-style login, unique per server |
-| `server_id` | uuid | FK to `trading_servers`; immutable on the account |
-| `nickname` | text | NOT NULL, 1–24 chars, default `Demo account` |
-| `label` | text | Account type (Standard / Pro / Raw Spread) |
-| `kind` | text | `demo` / `real` |
-| `server` | text | Display name snapshot of the selected server |
-| `trader_password` / `investor_password` | text | Plain platform credentials |
-| `access_role` | text | `trader` or `investor` |
-| `balance` | numeric(14,2) | Per-account balance |
-| `currency` | text | USD / EUR / GBP / NGN |
-| `leverage` | integer | 1–2000 |
-| `created_at` | timestamptz | |
+| Column                                  | Type          | Notes                                             |
+| --------------------------------------- | ------------- | ------------------------------------------------- |
+| `id`                                    | uuid          | PK                                                |
+| `user_id`                               | uuid          | Owner (nullable for legacy unowned accounts)      |
+| `issued_by`                             | uuid          | Legacy issuer reference                           |
+| `login`                                 | bigint        | MT5-style login, unique per server                |
+| `server_id`                             | uuid          | FK to `trading_servers`; immutable on the account |
+| `nickname`                              | text          | NOT NULL, 1–24 chars, default `Demo account`      |
+| `label`                                 | text          | Account type (Standard / Pro / Raw Spread)        |
+| `kind`                                  | text          | `demo` / `real`                                   |
+| `server`                                | text          | Display name snapshot of the selected server      |
+| `trader_password` / `investor_password` | text          | Plain platform credentials                        |
+| `access_role`                           | text          | `trader` or `investor`                            |
+| `balance`                               | numeric(14,2) | Per-account balance                               |
+| `currency`                              | text          | USD / EUR / GBP / NGN                             |
+| `leverage`                              | integer       | 1–2000                                            |
+| `created_at`                            | timestamptz   |                                                   |
 
 **`positions`** — open and closed trades.
 
@@ -357,12 +421,14 @@ RLS is enabled on all tables. Policies allow authenticated users to `SELECT`:
 
 - their own wallets, positions, transactions, pending orders and trading
   accounts,
-- active public trading servers,
+- active public trading servers (private servers are not client-readable),
+- their own server memberships,
 - trading accounts where they are the issuer (legacy),
 - trader links where they are the owner (legacy).
 
-There are no client INSERT/UPDATE/DELETE policies on the financial tables —
-writes go through server functions using the service role.
+There are no client INSERT/UPDATE/DELETE policies on the financial, membership
+or legacy invite-code tables — writes go through server functions using the
+service role.
 
 ### Indexes
 
@@ -371,6 +437,9 @@ writes go through server functions using the service role.
 - Transactions by user and by account (created_at desc).
 - Trading accounts by server, plus unique `(server_id, login)`.
 - Trading accounts by owner and issuer.
+- Server memberships by user, plus a partial unique index for one owner per
+  server.
+- Legacy invite codes by server and creation time, plus unique `code`.
 
 ---
 
@@ -378,29 +447,29 @@ writes go through server functions using the service role.
 
 ### Instruments
 
-| Symbol | Name | Digits | Spread | Contract | Quote is USD |
-| --- | --- | --- | --- | --- | --- |
-| EURUSD | Euro / US Dollar | 5 | 0.00008 | 100,000 | yes |
-| GBPUSD | British Pound / US Dollar | 5 | 0.0001 | 100,000 | yes |
-| USDJPY | US Dollar / Japanese Yen | 3 | 0.012 | 100,000 | no |
-| USDCAD | US Dollar / Canadian Dollar | 5 | 0.00012 | 100,000 | no |
-| USDCHF | US Dollar / Swiss Franc | 5 | 0.0001 | 100,000 | no |
-| AUDUSD | Australian Dollar / US Dollar | 5 | 0.00009 | 100,000 | yes |
-| NZDUSD | New Zealand Dollar / US Dollar | 5 | 0.00012 | 100,000 | yes |
-| EURGBP | Euro / British Pound | 5 | 0.0001 | 100,000 | no |
-| EURJPY | Euro / Japanese Yen | 3 | 0.014 | 100,000 | no |
-| GBPJPY | British Pound / Japanese Yen | 3 | 0.018 | 100,000 | no |
-| AUDJPY | Australian Dollar / Japanese Yen | 3 | 0.012 | 100,000 | no |
-| XAUUSD | Gold / US Dollar | 2 | 0.25 | 100 | yes |
-| XAGUSD | Silver / US Dollar | 3 | 0.02 | 5,000 | yes |
-| USOIL | WTI Crude Oil | 2 | 0.03 | 1,000 | yes |
-| US30 | Dow Jones 30 | 1 | 2 | 1 | yes |
-| NAS100 | Nasdaq 100 | 1 | 2 | 1 | yes |
-| SPX500 | S&P 500 | 1 | 0.5 | 1 | yes |
-| GER40 | DAX 40 | 1 | 2 | 1 | no |
-| UK100 | FTSE 100 | 1 | 1.5 | 1 | no |
-| BTCUSD | Bitcoin / US Dollar | 1 | 15 | 1 | yes |
-| ETHUSD | Ethereum / US Dollar | 2 | 1.5 | 1 | yes |
+| Symbol | Name                             | Digits | Spread  | Contract | Quote is USD |
+| ------ | -------------------------------- | ------ | ------- | -------- | ------------ |
+| EURUSD | Euro / US Dollar                 | 5      | 0.00008 | 100,000  | yes          |
+| GBPUSD | British Pound / US Dollar        | 5      | 0.0001  | 100,000  | yes          |
+| USDJPY | US Dollar / Japanese Yen         | 3      | 0.012   | 100,000  | no           |
+| USDCAD | US Dollar / Canadian Dollar      | 5      | 0.00012 | 100,000  | no           |
+| USDCHF | US Dollar / Swiss Franc          | 5      | 0.0001  | 100,000  | no           |
+| AUDUSD | Australian Dollar / US Dollar    | 5      | 0.00009 | 100,000  | yes          |
+| NZDUSD | New Zealand Dollar / US Dollar   | 5      | 0.00012 | 100,000  | yes          |
+| EURGBP | Euro / British Pound             | 5      | 0.0001  | 100,000  | no           |
+| EURJPY | Euro / Japanese Yen              | 3      | 0.014   | 100,000  | no           |
+| GBPJPY | British Pound / Japanese Yen     | 3      | 0.018   | 100,000  | no           |
+| AUDJPY | Australian Dollar / Japanese Yen | 3      | 0.012   | 100,000  | no           |
+| XAUUSD | Gold / US Dollar                 | 2      | 0.25    | 100      | yes          |
+| XAGUSD | Silver / US Dollar               | 3      | 0.02    | 5,000    | yes          |
+| USOIL  | WTI Crude Oil                    | 2      | 0.03    | 1,000    | yes          |
+| US30   | Dow Jones 30                     | 1      | 2       | 1        | yes          |
+| NAS100 | Nasdaq 100                       | 1      | 2       | 1        | yes          |
+| SPX500 | S&P 500                          | 1      | 0.5     | 1        | yes          |
+| GER40  | DAX 40                           | 1      | 2       | 1        | no           |
+| UK100  | FTSE 100                         | 1      | 1.5     | 1        | no           |
+| BTCUSD | Bitcoin / US Dollar              | 1      | 15      | 1        | yes          |
+| ETHUSD | Ethereum / US Dollar             | 2      | 1.5     | 1        | yes          |
 
 Prices come from Twelve Data for mapped instruments when `TWELVE_DATA_API_KEYS`
 is configured; unmapped instruments and any provider failure use the deterministic
@@ -508,12 +577,15 @@ credentials.
 │  │  ├─ auth.tsx                # Sign in / register
 │  │  ├─ _authenticated/
 │  │  │  ├─ route.tsx            # Client-side guard + app shell (sidebar/bottom nav)
-│  │  │  ├─ accounts.tsx         # Account creation/list/linking
+│  │  │  ├─ accounts.tsx         # Account creation and list
 │  │  │  ├─ trade.tsx            # Terminal, chart, order panel, positions
 │  │  │  ├─ orders.tsx           # Open positions and pending orders
 │  │  │  ├─ profile.tsx          # Account summary, switcher and deposit dialog
 │  │  │  ├─ history.tsx          # Closed trades
-│  │  │  └─ wallet.tsx           # Deposits/withdrawals/transactions
+│  │  │  ├─ wallet.tsx           # Deposits/withdrawals/transactions
+│  │  │  ├─ partner.tsx          # Partner route guard and layout
+│  │  │  ├─ partner.index.tsx    # Partner servers, settings and members
+│  │  │  └─ partner.accounts.tsx # Partner account creation and management
 │  │  └─ routeTree.gen.ts        # Generated by TanStack Router
 │  ├─ components/
 │  │  ├─ app-nav.tsx             # Desktop sidebar, mobile header/drawer, bottom nav
@@ -522,6 +594,9 @@ credentials.
 │  ├─ lib/
 │  │  ├─ account-options.ts      # Types/currencies/leverage, validation, money fmt
 │  │  ├─ accounts.functions.ts   # Account server functions
+│  │  ├─ partner.ts              # Browser-safe app/server role and slug helpers
+│  │  ├─ partner.functions.ts    # Partner server/member/account functions
+│  │  ├─ server-accounts.server.ts # Server-only membership and account helpers
 │  │  ├─ trading.functions.ts    # Trading/wallet server functions
 │  │  ├─ trading.ts              # Pricing, P/L, margin, stops
 │  │  ├─ trading-validation.ts   # Order/fund validation
@@ -551,7 +626,7 @@ credentials.
 │  ├─ router.tsx                 # Router creation
 │  └─ styles.css                 # Tailwind v4 theme (oklch tokens)
 ├─ supabase/migrations/          # SQL schema and RPC migrations
-├─ scripts/apply-schema.mjs      # Migration runner (SUPABASE_DB_URL)
+├─ scripts/apply-schema.mjs      # Legacy single-file migration runner
 ├─ wrangler.jsonc                # Cloudflare Worker config, public vars, DO binding
 ├─ exports.cloudflare.ts         # Custom Worker export (MarketStream Durable Object)
 ├─ vite.config.ts                # Lovable TanStack/Vite preset
@@ -563,8 +638,9 @@ credentials.
 
 ## Getting started
 
-Prerequisites: Node.js 20+ (or Bun), a Supabase project, and a Postgres
-connection string for migrations.
+Prerequisites: Node.js 20+ (or Bun), a Supabase project, and the Supabase CLI
+linked to that project for migrations (or a direct Postgres connection string
+for the legacy `db:apply` script).
 
 ```sh
 bun install        # or npm install
@@ -585,21 +661,21 @@ Public values are committed in `.env` and mirrored to Worker vars in
 `wrangler.jsonc`. Secrets belong in `.env.local` / `.dev.vars` (gitignored) and
 in Cloudflare secrets.
 
-| Variable | Scope | Purpose |
-| --- | --- | --- |
-| `SUPABASE_URL` | server + public | Project URL |
-| `SUPABASE_PUBLISHABLE_KEY` | server + public | Publishable API key (safe for browser) |
-| `SUPABASE_PROJECT_ID` | public | Project reference |
-| `VITE_SUPABASE_URL` | browser | Vite-exposed project URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | browser | Vite-exposed publishable key |
-| `VITE_SUPABASE_PROJECT_ID` | browser | Vite-exposed project reference |
-| `SUPABASE_SERVICE_ROLE_KEY` | server only | Bypasses RLS; required by all mutations |
-| `SUPABASE_DB_URL` | local tooling only | Direct/session-pooler Postgres URL for migrations |
-| `TWELVE_DATA_API_KEYS` | server only | Comma-separated market data key pool; rotated round-robin and on 429 |
-| `TWELVE_DATA_API_KEY` | server only | Single-key fallback; merged with the pool and de-duplicated |
-| `REALTIME_TICKET_SECRET` | server only | HMAC secret for short-lived realtime WebSocket tickets; required for realtime streaming |
-| `MARKET_QUOTE_TTL_MS` | server only, optional | Quote cache TTL (default 60000, minimum 1000; use 15000–30000 only on paid plans) |
-| `MARKET_CANDLE_TTL_MS` | server only, optional | Candle cache TTL override (default 1m–15m by timeframe) |
+| Variable                        | Scope                 | Purpose                                                                                 |
+| ------------------------------- | --------------------- | --------------------------------------------------------------------------------------- |
+| `SUPABASE_URL`                  | server + public       | Project URL                                                                             |
+| `SUPABASE_PUBLISHABLE_KEY`      | server + public       | Publishable API key (safe for browser)                                                  |
+| `SUPABASE_PROJECT_ID`           | public                | Project reference                                                                       |
+| `VITE_SUPABASE_URL`             | browser               | Vite-exposed project URL                                                                |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | browser               | Vite-exposed publishable key                                                            |
+| `VITE_SUPABASE_PROJECT_ID`      | browser               | Vite-exposed project reference                                                          |
+| `SUPABASE_SERVICE_ROLE_KEY`     | server only           | Bypasses RLS; required by all mutations                                                 |
+| `SUPABASE_DB_URL`               | local tooling only    | Optional direct/session-pooler URL for the legacy `db:apply` runner                     |
+| `TWELVE_DATA_API_KEYS`          | server only           | Comma-separated market data key pool; rotated round-robin and on 429                    |
+| `TWELVE_DATA_API_KEY`           | server only           | Single-key fallback; merged with the pool and de-duplicated                             |
+| `REALTIME_TICKET_SECRET`        | server only           | HMAC secret for short-lived realtime WebSocket tickets; required for realtime streaming |
+| `MARKET_QUOTE_TTL_MS`           | server only, optional | Quote cache TTL (default 60000, minimum 1000; use 15000–30000 only on paid plans)       |
+| `MARKET_CANDLE_TTL_MS`          | server only, optional | Candle cache TTL override (default 1m–15m by timeframe)                                 |
 
 Notes:
 
@@ -630,20 +706,21 @@ Notes:
 
 ## Database migrations
 
-Migrations are plain SQL, applied in filename order:
+Migrations are plain SQL, applied in filename order with the Supabase CLI:
 
 ```sh
-# Bash / macOS / Linux
-SUPABASE_DB_URL="postgresql://postgres.<ref>:<password>@<host>:5432/postgres" \
-  bun run db:apply supabase/migrations/20261020010000_account_nickname.sql
+supabase link --project-ref <project-ref>
+supabase db push
+```
 
-# PowerShell
-$env:SUPABASE_DB_URL = "postgresql://postgres.<ref>:<password>@<host>:5432/postgres"
+The legacy runner can apply a single file when `SUPABASE_DB_URL` is set:
+
+```sh
 bun run db:apply supabase/migrations/20261020010000_account_nickname.sql
 ```
 
 `scripts/apply-schema.mjs` executes the file as a single SQL batch. The
-nickname, per-account and trading-server migrations are written to be
+nickname, per-account, trading-server and partner migrations are written to be
 re-runnable; the initial migration uses `if not exists` / `drop ... if exists`
 guards.
 
@@ -655,18 +732,18 @@ CLI) and redeploy, because PostgREST caches function signatures briefly.
 
 ## Commands
 
-| Command | Description |
-| --- | --- |
-| `bun run dev` | Vite dev server with HMR |
-| `bun run build` | Production build (Nitro → Cloudflare) |
-| `bun run preview` | Preview the built app locally |
-| `bun run test` | Run Vitest once |
-| `bun run test:watch` | Watch mode |
-| `bun run lint` | ESLint |
-| `bun run format` | Prettier write |
-| `bun run db:apply <file>` | Apply a SQL migration using `SUPABASE_DB_URL` |
-| `bun run deploy` | Build + `wrangler deploy` |
-| `bun run preview:cloudflare` | Build + `wrangler dev` |
+| Command                      | Description                                                 |
+| ---------------------------- | ----------------------------------------------------------- |
+| `bun run dev`                | Vite dev server with HMR                                    |
+| `bun run build`              | Production build (Nitro → Cloudflare)                       |
+| `bun run preview`            | Preview the built app locally                               |
+| `bun run test`               | Run Vitest once                                             |
+| `bun run test:watch`         | Watch mode                                                  |
+| `bun run lint`               | ESLint                                                      |
+| `bun run format`             | Prettier write                                              |
+| `bun run db:apply <file>`    | Legacy single-file migration runner using `SUPABASE_DB_URL` |
+| `bun run deploy`             | Build + `wrangler deploy`                                   |
+| `bun run preview:cloudflare` | Build + `wrangler dev`                                      |
 
 > On some Windows setups the Vitest forks pool stalls when files run in
 > parallel; use `bunx vitest run --pool=forks --maxWorkers=1`. Likewise, the
@@ -678,16 +755,18 @@ CLI) and redeploy, because PostgREST caches function signatures briefly.
 
 Vitest with jsdom covers the pure logic and routing:
 
-| Suite | Coverage |
-| --- | --- |
-| `src/test/trading.test.ts` | P/L, leverage-aware margin, limit fills, stop-loss/take-profit logic |
-| `src/test/market-data.test.ts` | Provider symbol coverage, spread derivation, simulated fallback, synthetic OHLC candles, quote merging |
-| `src/test/market-data-rotation.test.ts` | Key-pool rotation, 429 cooldown, all-keys-limited fallback |
-| `src/test/realtime-ticket.test.ts` | Realtime ticket signing, tamper/wrong-secret/expiry rejection |
-| `src/test/realtime-symbols.test.ts` | Realtime client/provider symbol coverage |
-| `src/test/trading-validation.test.ts` | Lot limits, limit/stop-price validation, fund limits |
-| `src/test/account-options.test.ts` | Account types/currencies/leverage, balance precision, nickname rules, password length |
-| `src/test/app-routing.test.tsx` | Route matching for `/`, `/orders` and `/profile` |
+| Suite                                   | Coverage                                                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `src/test/trading.test.ts`              | P/L, leverage-aware margin, limit fills, stop-loss/take-profit logic                                               |
+| `src/test/market-data.test.ts`          | Provider symbol coverage, spread derivation, simulated fallback, synthetic OHLC candles, quote merging             |
+| `src/test/market-data-rotation.test.ts` | Key-pool rotation, 429 cooldown, all-keys-limited fallback                                                         |
+| `src/test/realtime-ticket.test.ts`      | Realtime ticket signing, tamper/wrong-secret/expiry rejection                                                      |
+| `src/test/realtime-symbols.test.ts`     | Realtime client/provider symbol coverage                                                                           |
+| `src/test/trading-validation.test.ts`   | Lot limits, limit/stop-price validation, fund limits                                                               |
+| `src/test/account-options.test.ts`      | Account types/currencies/leverage, balance precision, nickname rules, password length                              |
+| `src/test/server-options.test.ts`       | Per-server defaults, balance clamping and server-specific option validation                                        |
+| `src/test/partner.test.ts`              | Partner portal access, server role normalization, management permissions, slug generation and member-removal rules |
+| `src/test/app-routing.test.tsx`         | Route matching for `/`, `/orders` and `/profile`                                                                   |
 
 Run:
 
@@ -765,10 +844,13 @@ Cloudflare Worker above is the current production deployment.
 
 ## Known limitations and notes
 
-- **Servers:** Phase 1 supports active public servers only. Private/invite
-  servers, partner administration, `server_members`/access codes and
-  firm-provisioned accounts are Phase 2. The `visibility` and `kind` columns are
-  stored for that work but do not yet grant any extra access.
+- **Servers:** partner servers support public/private visibility, owner/admin/
+  member roles, and owner/admin account creation and management on the sidebar
+  Accounts page. Private servers are hidden from traders, and there is no
+  self-service invite, claim, owner transfer, self-service leave, audit log or
+  partner billing yet.
+- **Partner access:** the `partner` role is seeded manually in `app_roles`; there
+  is no in-app role-management UI.
 - **Limit fills:** pending orders are evaluated only when the account is polled
   (`getAccount`, every 5 seconds while the terminal is open). There is no
   background scheduler, so fills can be delayed while the app is closed.

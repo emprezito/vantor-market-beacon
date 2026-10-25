@@ -3,12 +3,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import {
-  claimTradingAccount,
-  listMyAccounts,
-  listTradingServers,
-  openDemoAccount,
-} from "@/lib/accounts.functions";
+import { listMyAccounts, listTradingServers, openDemoAccount } from "@/lib/accounts.functions";
 import { moveFunds } from "@/lib/trading.functions";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import {
@@ -44,7 +39,6 @@ function AccountsPage() {
   const list = useServerFn(listMyAccounts);
   const listServers = useServerFn(listTradingServers);
   const openDemo = useServerFn(openDemoAccount);
-  const claim = useServerFn(claimTradingAccount);
   const move = useServerFn(moveFunds);
   const [, setActiveAccount] = useActiveAccount();
   const { data, isLoading } = useQuery({ queryKey: ["my-accounts"], queryFn: () => list() });
@@ -58,10 +52,7 @@ function AccountsPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [balanceFor, setBalanceFor] = useState<string | null>(null);
   const [newBalance, setNewBalance] = useState("");
-  const [login, setLogin] = useState("");
-  const [password, setPassword] = useState("");
   const [serverId, setServerId] = useState("");
-  const [claimServerId, setClaimServerId] = useState("");
   const [nickname, setNickname] = useState("");
   const [accountType, setAccountType] = useState<string>(DEFAULT_ACCOUNT_TYPE);
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
@@ -71,7 +62,6 @@ function AccountsPage() {
 
   const servers = serversQuery.data ?? [];
   const selectedServer = servers.find((server) => server.id === serverId) ?? servers[0] ?? null;
-  const claimServer = servers.find((server) => server.id === claimServerId) ?? servers[0] ?? null;
   const accountTypeOptions = selectedServer?.account_types ?? ACCOUNT_TYPES;
   const currencyOptions = selectedServer?.currencies ?? CURRENCIES;
   const leverageOptions = selectedServer?.leverages ?? LEVERAGES;
@@ -82,8 +72,9 @@ function AccountsPage() {
     const available = serversQuery.data;
     if (!available?.length) return;
     const fallback = available[0]!.id;
-    setServerId((current) => (current && available.some((server) => server.id === current) ? current : fallback));
-    setClaimServerId((current) => (current && available.some((server) => server.id === current) ? current : fallback));
+    setServerId((current) =>
+      current && available.some((server) => server.id === current) ? current : fallback,
+    );
   }, [serversQuery.data]);
 
   useEffect(() => {
@@ -96,38 +87,54 @@ function AccountsPage() {
   }, [selectedServer]);
 
   const openMut = useMutation({
-    mutationFn: () => openDemo({ data: { nickname, accountType, currency, leverage, balance: Number(size), password: traderPass, serverId: selectedServer?.id ?? "" } }),
+    mutationFn: () =>
+      openDemo({
+        data: {
+          nickname,
+          accountType,
+          currency,
+          leverage,
+          balance: Number(size),
+          password: traderPass,
+          serverId: selectedServer?.id ?? "",
+        },
+      }),
     onSuccess: (acc) => {
       qc.invalidateQueries({ queryKey: ["my-accounts"] });
       setActiveAccount(acc.id);
       setOpenPanel(false);
       setNickname("");
       setTraderPass("");
-      toast.success(`Account "${acc.nickname}" (#${acc.login}) created on ${acc.server}. Trader password: ${acc.trader_password} — investor password: ${acc.investor_password}`);
-    },
-    onError: (e) => toast.error(e.message),
-  });
-  const claimMut = useMutation({
-    mutationFn: () => claim({ data: { login, password, serverId: claimServer?.id ?? "" } }),
-    onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ["my-accounts"] });
-      qc.invalidateQueries({ queryKey: ["account"] });
-      setOpenPanel(false); setLogin(""); setPassword("");
-      toast.success(r.role === "investor" ? "Account linked with investor (read-only) access" : "Account linked — you can trade on it now");
+      toast.success(
+        `Account "${acc.nickname}" (#${acc.login}) created on ${acc.server}. Trader password: ${acc.trader_password} — investor password: ${acc.investor_password}`,
+      );
     },
     onError: (e) => toast.error(e.message),
   });
   const balanceMut = useMutation({
-    mutationFn: async ({ account, target }: { account: { id: string; balance: number; currency: string }; target: number }) => {
+    mutationFn: async ({
+      account,
+      target,
+    }: {
+      account: { id: string; balance: number; currency: string };
+      target: number;
+    }) => {
       const delta = Math.round((target - Number(account.balance)) * 100) / 100;
       if (delta === 0) return;
       if (Math.abs(delta) < 1) throw new Error("Balance changes must be at least 1");
-      await move({ data: { accountId: account.id, kind: delta > 0 ? "deposit" : "withdraw", amount: Math.abs(delta) } });
+      await move({
+        data: {
+          accountId: account.id,
+          kind: delta > 0 ? "deposit" : "withdraw",
+          amount: Math.abs(delta),
+        },
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["account"] });
       qc.invalidateQueries({ queryKey: ["my-accounts"] });
-      setBalanceFor(null); setNewBalance("");
+      setBalanceFor(null);
+      setNewBalance("");
       toast.success("Balance updated");
     },
     onError: (e) => toast.error(e.message),
@@ -139,21 +146,37 @@ function AccountsPage() {
     <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">My accounts</h1>
-        <Button variant="outline" onClick={() => setOpenPanel((v) => !v)}>+ Open account</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setOpenPanel((v) => !v)}>
+            + Open account
+          </Button>
+        </div>
       </div>
 
       {openPanel && (
-        <section className="mt-4 grid gap-4 rounded-lg border bg-card p-4 sm:p-5 lg:grid-cols-[1.3fr_1fr]">
-          <div className="rounded-md border p-4">
+        <section className="mt-4 rounded-lg border bg-card p-4 sm:p-5">
+          <div>
             <h3 className="font-bold">Trading account</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Instant setup with MT5-style login and passwords.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Instant setup with MT5-style login and passwords.
+            </p>
             <form
               className="mt-3 grid gap-3 sm:grid-cols-2"
-              onSubmit={(e) => { e.preventDefault(); openMut.mutate(); }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                openMut.mutate();
+              }}
             >
               <div className="sm:col-span-2">
                 <Label htmlFor="anick">Nickname</Label>
-                <Input id="anick" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="e.g. Scalping account" maxLength={24} required />
+                <Input
+                  id="anick"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder="e.g. Scalping account"
+                  maxLength={24}
+                  required
+                />
               </div>
               <div className="sm:col-span-2">
                 <Label htmlFor="aserver">Trading server</Label>
@@ -166,96 +189,112 @@ function AccountsPage() {
                   required
                 >
                   {servers.length === 0 && (
-                    <option value="">{serversQuery.isPending ? "Loading servers…" : "No servers available"}</option>
+                    <option value="">
+                      {serversQuery.isPending ? "Loading servers…" : "No servers available"}
+                    </option>
                   )}
                   {servers.map((server) => (
-                    <option key={server.id} value={server.id}>{server.name}</option>
+                    <option key={server.id} value={server.id}>
+                      {server.name}
+                    </option>
                   ))}
                 </select>
                 {selectedServer && (
                   <div className="mt-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                    <p>
+                      <span className="font-medium text-foreground">{selectedServer.name}</span>
+                    </p>
                     <p>{selectedServer.description}</p>
                     <p className="mt-1">
-                      {selectedServer.account_types.join(" · ")} · {selectedServer.currencies.join(" / ")} · leverage up to 1:
-                      {Math.max(...selectedServer.leverages)} · balance {minBalance.toLocaleString("en-US")}–
-                      {maxBalance.toLocaleString("en-US")}
+                      {selectedServer.account_types.join(" · ")} ·{" "}
+                      {selectedServer.currencies.join(" / ")} · leverage up to 1:
+                      {Math.max(...selectedServer.leverages)} · balance{" "}
+                      {minBalance.toLocaleString("en-US")}–{maxBalance.toLocaleString("en-US")}
                     </p>
                   </div>
                 )}
                 {serversQuery.error && (
-                  <p role="alert" className="mt-1 text-xs text-destructive">{(serversQuery.error as Error).message}</p>
+                  <p role="alert" className="mt-1 text-xs text-destructive">
+                    {(serversQuery.error as Error).message}
+                  </p>
                 )}
               </div>
               <div>
                 <Label htmlFor="atype">Account type</Label>
-                <select id="atype" className={inputCls} value={accountType} onChange={(e) => setAccountType(e.target.value)}>
-                  {accountTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                <select
+                  id="atype"
+                  className={inputCls}
+                  value={accountType}
+                  onChange={(e) => setAccountType(e.target.value)}
+                >
+                  {accountTypeOptions.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
                 <Label htmlFor="acur">Currency</Label>
-                <select id="acur" className={inputCls} value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                  {currencyOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                <select
+                  id="acur"
+                  className={inputCls}
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                >
+                  {currencyOptions.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
                 <Label htmlFor="alev">Leverage</Label>
-                <select id="alev" className={inputCls} value={leverage} onChange={(e) => setLeverage(Number(e.target.value))}>
-                  {leverageOptions.map((l) => <option key={l} value={l}>1:{l}</option>)}
+                <select
+                  id="alev"
+                  className={inputCls}
+                  value={leverage}
+                  onChange={(e) => setLeverage(Number(e.target.value))}
+                >
+                  {leverageOptions.map((l) => (
+                    <option key={l} value={l}>
+                      1:{l}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
                 <Label htmlFor="asize">Starting balance ({currency})</Label>
-                <Input id="asize" inputMode="decimal" value={size} onChange={(e) => setSize(e.target.value)} />
+                <Input
+                  id="asize"
+                  inputMode="decimal"
+                  value={size}
+                  onChange={(e) => setSize(e.target.value)}
+                />
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Allowed: {minBalance.toLocaleString("en-US")}–{maxBalance.toLocaleString("en-US")} {currency}
+                  Allowed: {minBalance.toLocaleString("en-US")}–{maxBalance.toLocaleString("en-US")}{" "}
+                  {currency}
                 </p>
               </div>
               <div className="sm:col-span-2">
                 <Label htmlFor="apass">Trader password</Label>
-                <Input id="apass" type="text" value={traderPass} onChange={(e) => setTraderPass(e.target.value)} placeholder="Min. 8 characters" />
+                <Input
+                  id="apass"
+                  type="text"
+                  value={traderPass}
+                  onChange={(e) => setTraderPass(e.target.value)}
+                  placeholder="Min. 8 characters"
+                />
               </div>
               <div className="sm:col-span-2">
                 <Button type="submit" disabled={openMut.isPending || !selectedServer}>
                   {openMut.isPending ? "Creating…" : "Create account"}
                 </Button>
-                <p className="mt-2 text-xs text-muted-foreground">An investor password is generated automatically after creation.</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  An investor password is generated automatically after creation.
+                </p>
               </div>
-            </form>
-          </div>
-          <div className="rounded-md border p-4">
-            <h3 className="font-bold">Log in to an existing account</h3>
-            <form
-              className="mt-2 space-y-2"
-              onSubmit={(e) => { e.preventDefault(); claimMut.mutate(); }}
-            >
-              <div>
-                <Label htmlFor="login">Login</Label>
-                <Input id="login" inputMode="numeric" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="e.g. 81792377" />
-              </div>
-              <div>
-                <Label htmlFor="tp">Trader or investor password</Label>
-                <Input id="tp" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" />
-              </div>
-              <div>
-                <Label htmlFor="srv">Server</Label>
-                <select
-                  id="srv"
-                  className={inputCls}
-                  value={claimServer?.id ?? ""}
-                  onChange={(e) => setClaimServerId(e.target.value)}
-                  disabled={serversQuery.isPending || servers.length === 0}
-                  required
-                >
-                  {servers.length === 0 && (
-                    <option value="">{serversQuery.isPending ? "Loading servers…" : "No servers available"}</option>
-                  )}
-                  {servers.map((server) => (
-                    <option key={server.id} value={server.id}>{server.name}</option>
-                  ))}
-                </select>
-              </div>
-              <Button type="submit" disabled={claimMut.isPending || !claimServer}>{claimMut.isPending ? "Linking…" : "Log in"}</Button>
             </form>
           </div>
         </section>
@@ -274,47 +313,106 @@ function AccountsPage() {
             <article key={a.id} className="rounded-lg border bg-card p-4 sm:p-5">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-base font-bold">{a.nickname}</span>
-                <span className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground">MT5</span>
-                <span className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground">{a.label}</span>
+                <span className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground">
+                  MT5
+                </span>
+                <span className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground">
+                  {a.label}
+                </span>
                 <span className="font-mono font-semibold"># {a.login}</span>
-                {readOnly && <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">Investor (read-only)</span>}
-                <button className="ml-auto opacity-60" onClick={() => setExpanded(isOpen ? null : a.id)} aria-label="Toggle details">
+                {readOnly && (
+                  <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    Investor (read-only)
+                  </span>
+                )}
+                <button
+                  className="ml-auto opacity-60"
+                  onClick={() => setExpanded(isOpen ? null : a.id)}
+                  aria-label="Toggle details"
+                >
                   {isOpen ? "▴" : "▾"}
                 </button>
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                 <p className="break-words text-2xl font-extrabold tracking-tight sm:text-3xl">
-                  {formatMoney(Number(a.balance), a.currency)} <span className="text-base font-normal opacity-60">{a.currency}</span>
+                  {formatMoney(Number(a.balance), a.currency)}{" "}
+                  <span className="text-base font-normal opacity-60">{a.currency}</span>
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => { setActiveAccount(a.id); navigate({ to: "/trade" }); }} disabled={readOnly}>Trade</Button>
-                  <Button variant="outline" onClick={() => setBalanceFor(balanceFor === a.id ? null : a.id)} disabled={readOnly}>Set Balance</Button>
+                  <Button
+                    onClick={() => {
+                      setActiveAccount(a.id);
+                      navigate({ to: "/trade" });
+                    }}
+                    disabled={readOnly}
+                  >
+                    Trade
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setBalanceFor(balanceFor === a.id ? null : a.id)}
+                    disabled={readOnly}
+                  >
+                    Set Balance
+                  </Button>
                 </div>
               </div>
               {balanceFor === a.id && (
                 <form
                   className="mt-3 flex flex-col items-stretch gap-2 sm:flex-row sm:items-end"
-                  onSubmit={(e) => { e.preventDefault(); balanceMut.mutate({ account: a, target: Number(newBalance) }); }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    balanceMut.mutate({ account: a, target: Number(newBalance) });
+                  }}
                 >
                   <div className="w-full">
                     <Label htmlFor={`bal-${a.id}`}>New balance ({a.currency})</Label>
-                    <Input id={`bal-${a.id}`} inputMode="decimal" value={newBalance} onChange={(e) => setNewBalance(e.target.value)} placeholder="e.g. 50000" />
+                    <Input
+                      id={`bal-${a.id}`}
+                      inputMode="decimal"
+                      value={newBalance}
+                      onChange={(e) => setNewBalance(e.target.value)}
+                      placeholder="e.g. 50000"
+                    />
                   </div>
-                  <Button type="submit" variant="secondary" disabled={balanceMut.isPending}>Apply</Button>
+                  <Button type="submit" variant="secondary" disabled={balanceMut.isPending}>
+                    Apply
+                  </Button>
                 </form>
               )}
               {isOpen && (
                 <div className="mt-4 border-t pt-4 text-sm">
                   <div className="grid gap-3 rounded-md bg-muted p-4 sm:grid-cols-2">
-                    <p className="flex justify-between"><span className="opacity-60">Floating P/L</span><span>0.00 {a.currency}</span></p>
-                    <p className="flex justify-between"><span className="opacity-60">Free margin</span><span>{formatMoney(Number(a.balance), a.currency)}</span></p>
-                    <p className="flex justify-between"><span className="opacity-60">Equity</span><span>{formatMoney(Number(a.balance), a.currency)}</span></p>
-                    <p className="flex justify-between"><span className="opacity-60">Max leverage</span><span>1:{a.leverage}</span></p>
+                    <p className="flex justify-between">
+                      <span className="opacity-60">Floating P/L</span>
+                      <span>0.00 {a.currency}</span>
+                    </p>
+                    <p className="flex justify-between">
+                      <span className="opacity-60">Free margin</span>
+                      <span>{formatMoney(Number(a.balance), a.currency)}</span>
+                    </p>
+                    <p className="flex justify-between">
+                      <span className="opacity-60">Equity</span>
+                      <span>{formatMoney(Number(a.balance), a.currency)}</span>
+                    </p>
+                    <p className="flex justify-between">
+                      <span className="opacity-60">Max leverage</span>
+                      <span>1:{a.leverage}</span>
+                    </p>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-6">
-                    <p><span className="opacity-60">Server… </span><span className="font-mono">{a.server}</span></p>
-                    <p><span className="opacity-60">MT5 login… </span><span className="font-mono">{a.login}</span></p>
-                    <p><span className="opacity-60">Currency… </span><span className="font-mono">{a.currency}</span></p>
+                    <p>
+                      <span className="opacity-60">Server… </span>
+                      <span className="font-mono">{a.server}</span>
+                    </p>
+                    <p>
+                      <span className="opacity-60">MT5 login… </span>
+                      <span className="font-mono">{a.login}</span>
+                    </p>
+                    <p>
+                      <span className="opacity-60">Currency… </span>
+                      <span className="font-mono">{a.currency}</span>
+                    </p>
                   </div>
                 </div>
               )}

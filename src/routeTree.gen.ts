@@ -15,9 +15,12 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAccountsRouteImport } from './routes/_authenticated/accounts'
 import { Route as AuthenticatedHistoryRouteImport } from './routes/_authenticated/history'
 import { Route as AuthenticatedOrdersRouteImport } from './routes/_authenticated/orders'
+import { Route as AuthenticatedPartnerRouteImport } from './routes/_authenticated/partner'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
 import { Route as AuthenticatedTradeRouteImport } from './routes/_authenticated/trade'
 import { Route as AuthenticatedWalletRouteImport } from './routes/_authenticated/wallet'
+import { Route as AuthenticatedPartnerIndexRouteImport } from './routes/_authenticated/partner.index'
+import { Route as AuthenticatedPartnerAccountsRouteImport } from './routes/_authenticated/partner.accounts'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -48,6 +51,11 @@ const AuthenticatedOrdersRoute = AuthenticatedOrdersRouteImport.update({
   path: '/orders',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedPartnerRoute = AuthenticatedPartnerRouteImport.update({
+  id: '/partner',
+  path: '/partner',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
@@ -63,6 +71,18 @@ const AuthenticatedWalletRoute = AuthenticatedWalletRouteImport.update({
   path: '/wallet',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedPartnerIndexRoute =
+  AuthenticatedPartnerIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedPartnerRoute,
+  } as any)
+const AuthenticatedPartnerAccountsRoute =
+  AuthenticatedPartnerAccountsRouteImport.update({
+    id: '/accounts',
+    path: '/accounts',
+    getParentRoute: () => AuthenticatedPartnerRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -70,9 +90,12 @@ export interface FileRoutesByFullPath {
   '/accounts': typeof AuthenticatedAccountsRoute
   '/history': typeof AuthenticatedHistoryRoute
   '/orders': typeof AuthenticatedOrdersRoute
+  '/partner': typeof AuthenticatedPartnerRouteWithChildren
   '/profile': typeof AuthenticatedProfileRoute
   '/trade': typeof AuthenticatedTradeRoute
   '/wallet': typeof AuthenticatedWalletRoute
+  '/partner/accounts': typeof AuthenticatedPartnerAccountsRoute
+  '/partner/': typeof AuthenticatedPartnerIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -83,6 +106,8 @@ export interface FileRoutesByTo {
   '/profile': typeof AuthenticatedProfileRoute
   '/trade': typeof AuthenticatedTradeRoute
   '/wallet': typeof AuthenticatedWalletRoute
+  '/partner/accounts': typeof AuthenticatedPartnerAccountsRoute
+  '/partner': typeof AuthenticatedPartnerIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -92,9 +117,12 @@ export interface FileRoutesById {
   '/_authenticated/accounts': typeof AuthenticatedAccountsRoute
   '/_authenticated/history': typeof AuthenticatedHistoryRoute
   '/_authenticated/orders': typeof AuthenticatedOrdersRoute
+  '/_authenticated/partner': typeof AuthenticatedPartnerRouteWithChildren
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/trade': typeof AuthenticatedTradeRoute
   '/_authenticated/wallet': typeof AuthenticatedWalletRoute
+  '/_authenticated/partner/accounts': typeof AuthenticatedPartnerAccountsRoute
+  '/_authenticated/partner/': typeof AuthenticatedPartnerIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -104,9 +132,12 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/history'
     | '/orders'
+    | '/partner'
     | '/profile'
     | '/trade'
     | '/wallet'
+    | '/partner/accounts'
+    | '/partner/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -117,6 +148,8 @@ export interface FileRouteTypes {
     | '/profile'
     | '/trade'
     | '/wallet'
+    | '/partner/accounts'
+    | '/partner'
   id:
     | '__root__'
     | '/'
@@ -125,9 +158,12 @@ export interface FileRouteTypes {
     | '/_authenticated/accounts'
     | '/_authenticated/history'
     | '/_authenticated/orders'
+    | '/_authenticated/partner'
     | '/_authenticated/profile'
     | '/_authenticated/trade'
     | '/_authenticated/wallet'
+    | '/_authenticated/partner/accounts'
+    | '/_authenticated/partner/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -180,6 +216,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOrdersRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/partner': {
+      id: '/_authenticated/partner'
+      path: '/partner'
+      fullPath: '/partner'
+      preLoaderRoute: typeof AuthenticatedPartnerRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/profile': {
       id: '/_authenticated/profile'
       path: '/profile'
@@ -201,13 +244,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWalletRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/partner/': {
+      id: '/_authenticated/partner/'
+      path: '/'
+      fullPath: '/partner/'
+      preLoaderRoute: typeof AuthenticatedPartnerIndexRouteImport
+      parentRoute: typeof AuthenticatedPartnerRoute
+    }
+    '/_authenticated/partner/accounts': {
+      id: '/_authenticated/partner/accounts'
+      path: '/accounts'
+      fullPath: '/partner/accounts'
+      preLoaderRoute: typeof AuthenticatedPartnerAccountsRouteImport
+      parentRoute: typeof AuthenticatedPartnerRoute
+    }
   }
 }
+
+interface AuthenticatedPartnerRouteChildren {
+  AuthenticatedPartnerAccountsRoute: typeof AuthenticatedPartnerAccountsRoute
+  AuthenticatedPartnerIndexRoute: typeof AuthenticatedPartnerIndexRoute
+}
+
+const AuthenticatedPartnerRouteChildren: AuthenticatedPartnerRouteChildren = {
+  AuthenticatedPartnerAccountsRoute: AuthenticatedPartnerAccountsRoute,
+  AuthenticatedPartnerIndexRoute: AuthenticatedPartnerIndexRoute,
+}
+
+const AuthenticatedPartnerRouteWithChildren =
+  AuthenticatedPartnerRoute._addFileChildren(AuthenticatedPartnerRouteChildren)
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountsRoute: typeof AuthenticatedAccountsRoute
   AuthenticatedHistoryRoute: typeof AuthenticatedHistoryRoute
   AuthenticatedOrdersRoute: typeof AuthenticatedOrdersRoute
+  AuthenticatedPartnerRoute: typeof AuthenticatedPartnerRouteWithChildren
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedTradeRoute: typeof AuthenticatedTradeRoute
   AuthenticatedWalletRoute: typeof AuthenticatedWalletRoute
@@ -217,6 +288,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountsRoute: AuthenticatedAccountsRoute,
   AuthenticatedHistoryRoute: AuthenticatedHistoryRoute,
   AuthenticatedOrdersRoute: AuthenticatedOrdersRoute,
+  AuthenticatedPartnerRoute: AuthenticatedPartnerRouteWithChildren,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedTradeRoute: AuthenticatedTradeRoute,
   AuthenticatedWalletRoute: AuthenticatedWalletRoute,

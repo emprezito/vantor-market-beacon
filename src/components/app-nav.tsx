@@ -4,13 +4,21 @@ import {
   ListOrdered,
   LogOut,
   Menu,
+  Server,
   TrendingUp,
   UserCircle,
   Users,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
-import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 
 export type NavAccount = {
   id: string;
@@ -21,7 +29,15 @@ export type NavAccount = {
   leverage: number;
 };
 
-type NavTo = "/accounts" | "/trade" | "/orders" | "/history" | "/wallet" | "/profile";
+type NavTo =
+  | "/accounts"
+  | "/trade"
+  | "/orders"
+  | "/history"
+  | "/wallet"
+  | "/partner"
+  | "/partner/accounts"
+  | "/profile";
 
 const navItems: { to: NavTo; label: string; icon: LucideIcon }[] = [
   { to: "/accounts", label: "Accounts", icon: Users },
@@ -29,10 +45,20 @@ const navItems: { to: NavTo; label: string; icon: LucideIcon }[] = [
   { to: "/orders", label: "Orders", icon: ListOrdered },
   { to: "/history", label: "History", icon: History },
   { to: "/wallet", label: "Wallet", icon: Wallet },
+  { to: "/partner", label: "Partner", icon: Server },
+  { to: "/partner/accounts", label: "Accounts", icon: Users },
   { to: "/profile", label: "Profile", icon: UserCircle },
 ];
 
-const bottomItems = navItems.filter((item) => ["/accounts", "/trade", "/orders", "/profile"].includes(item.to));
+const bottomItems = navItems.filter((item) =>
+  ["/accounts", "/trade", "/orders", "/profile"].includes(item.to),
+);
+
+function visibleNavItems(partner: boolean) {
+  return partner
+    ? navItems.filter((item) => item.to === "/partner" || item.to === "/partner/accounts")
+    : navItems.filter((item) => item.to !== "/partner" && item.to !== "/partner/accounts");
+}
 
 export function AccountPicker({
   accounts,
@@ -49,7 +75,11 @@ export function AccountPicker({
     return (
       <Link
         to="/accounts"
-        className={compact ? "text-xs text-primary underline-offset-2 hover:underline" : "text-sm text-primary underline-offset-2 hover:underline"}
+        className={
+          compact
+            ? "text-xs text-primary underline-offset-2 hover:underline"
+            : "text-sm text-primary underline-offset-2 hover:underline"
+        }
       >
         Open account
       </Link>
@@ -77,8 +107,10 @@ export function AccountPicker({
   );
 }
 
-const desktopLink = "flex items-center gap-3 rounded-md px-3 py-2 text-sm opacity-75 transition hover:bg-secondary-foreground/10 hover:opacity-100";
-const desktopActive = "flex items-center gap-3 rounded-md bg-secondary-foreground/10 px-3 py-2 text-sm font-medium text-primary";
+const desktopLink =
+  "flex items-center gap-3 rounded-md px-3 py-2 text-sm opacity-75 transition hover:bg-secondary-foreground/10 hover:opacity-100";
+const desktopActive =
+  "flex items-center gap-3 rounded-md bg-secondary-foreground/10 px-3 py-2 text-sm font-medium text-primary";
 
 export function DesktopSidebar({
   accounts,
@@ -86,22 +118,33 @@ export function DesktopSidebar({
   onSelect,
   onSignOut,
   ordersActive,
+  partner = false,
 }: {
   accounts: NavAccount[];
   activeAccount: NavAccount | null;
   onSelect: (id: string) => void;
   onSignOut: () => void;
   ordersActive: boolean;
+  partner?: boolean;
 }) {
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-secondary-foreground/10 bg-secondary px-3 py-4 text-secondary-foreground lg:flex">
-      <Link to="/trade" className="px-2 text-2xl font-extrabold tracking-tight text-primary">vantor</Link>
-      <div className="mt-5 rounded-lg border border-secondary-foreground/10 bg-secondary-foreground/5 p-2">
-        <p className="mb-1.5 px-1 text-[10px] uppercase tracking-wide text-secondary-foreground/50">Trading account</p>
-        <AccountPicker accounts={accounts} activeAccount={activeAccount} onSelect={onSelect} />
-      </div>
+      <Link
+        to={partner ? "/partner" : "/trade"}
+        className="px-2 text-2xl font-extrabold tracking-tight text-primary"
+      >
+        vantor
+      </Link>
+      {!partner && (
+        <div className="mt-5 rounded-lg border border-secondary-foreground/10 bg-secondary-foreground/5 p-2">
+          <p className="mb-1.5 px-1 text-[10px] uppercase tracking-wide text-secondary-foreground/50">
+            Trading account
+          </p>
+          <AccountPicker accounts={accounts} activeAccount={activeAccount} onSelect={onSelect} />
+        </div>
+      )}
       <nav className="mt-4 flex flex-1 flex-col gap-0.5">
-        {navItems.map((item) => {
+        {visibleNavItems(partner).map((item) => {
           const showDot = item.to === "/orders" && ordersActive;
           return (
             <Link
@@ -109,11 +152,14 @@ export function DesktopSidebar({
               to={item.to}
               className={desktopLink}
               activeProps={{ className: desktopActive }}
+              activeOptions={{ exact: true }}
               aria-label={showDot ? `${item.label} (open orders)` : undefined}
             >
               <item.icon className="h-4 w-4" />
               {item.label}
-              {showDot && <span className="ml-auto h-2 w-2 rounded-full bg-red-500" aria-hidden="true" />}
+              {showDot && (
+                <span className="ml-auto h-2 w-2 rounded-full bg-red-500" aria-hidden="true" />
+              )}
             </Link>
           );
         })}
@@ -130,8 +176,10 @@ export function DesktopSidebar({
   );
 }
 
-const sheetLink = "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm opacity-80 transition hover:bg-secondary-foreground/10 hover:opacity-100";
-const sheetActive = "flex items-center gap-3 rounded-md bg-secondary-foreground/10 px-3 py-2.5 text-sm font-medium text-primary";
+const sheetLink =
+  "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm opacity-80 transition hover:bg-secondary-foreground/10 hover:opacity-100";
+const sheetActive =
+  "flex items-center gap-3 rounded-md bg-secondary-foreground/10 px-3 py-2.5 text-sm font-medium text-primary";
 
 export function MobileHeader({
   accounts,
@@ -139,27 +187,40 @@ export function MobileHeader({
   onSelect,
   onSignOut,
   ordersActive,
+  partner = false,
 }: {
   accounts: NavAccount[];
   activeAccount: NavAccount | null;
   onSelect: (id: string) => void;
   onSignOut: () => void;
   ordersActive: boolean;
+  partner?: boolean;
 }) {
   return (
     <header className="sticky top-0 z-40 bg-secondary text-secondary-foreground lg:hidden">
       <div className="flex h-14 items-center gap-2 px-3">
         <Sheet>
           <SheetTrigger asChild>
-            <button type="button" aria-label="Open menu" className="rounded-md p-2 transition hover:bg-secondary-foreground/10">
+            <button
+              type="button"
+              aria-label="Open menu"
+              className="rounded-md p-2 transition hover:bg-secondary-foreground/10"
+            >
               <Menu className="h-5 w-5" />
             </button>
           </SheetTrigger>
-          <SheetContent side="left" className="flex w-72 max-w-[85vw] flex-col bg-secondary p-5 text-secondary-foreground">
-            <SheetTitle className="text-2xl font-extrabold tracking-tight text-primary">vantor</SheetTitle>
-            <SheetDescription className="sr-only">Account navigation</SheetDescription>
+          <SheetContent
+            side="left"
+            className="flex w-72 max-w-[85vw] flex-col bg-secondary p-5 text-secondary-foreground"
+          >
+            <SheetTitle className="text-2xl font-extrabold tracking-tight text-primary">
+              vantor
+            </SheetTitle>
+            <SheetDescription className="sr-only">
+              {partner ? "Partner navigation" : "Account navigation"}
+            </SheetDescription>
             <nav className="mt-5 flex flex-col gap-0.5">
-              {navItems.map((item) => {
+              {visibleNavItems(partner).map((item) => {
                 const showDot = item.to === "/orders" && ordersActive;
                 return (
                   <SheetClose asChild key={item.to}>
@@ -167,11 +228,17 @@ export function MobileHeader({
                       to={item.to}
                       className={sheetLink}
                       activeProps={{ className: sheetActive }}
+                      activeOptions={{ exact: true }}
                       aria-label={showDot ? `${item.label} (open orders)` : undefined}
                     >
                       <item.icon className="h-4 w-4" />
                       {item.label}
-                      {showDot && <span className="ml-auto h-2 w-2 rounded-full bg-red-500" aria-hidden="true" />}
+                      {showDot && (
+                        <span
+                          className="ml-auto h-2 w-2 rounded-full bg-red-500"
+                          aria-hidden="true"
+                        />
+                      )}
                     </Link>
                   </SheetClose>
                 );
@@ -191,17 +258,31 @@ export function MobileHeader({
             </div>
           </SheetContent>
         </Sheet>
-        <Link to="/trade" className="text-xl font-extrabold tracking-tight text-primary">vantor</Link>
-        <div className="ml-auto min-w-0 max-w-[55vw]">
-          <AccountPicker compact accounts={accounts} activeAccount={activeAccount} onSelect={onSelect} />
-        </div>
+        <Link
+          to={partner ? "/partner" : "/trade"}
+          className="text-xl font-extrabold tracking-tight text-primary"
+        >
+          vantor
+        </Link>
+        {!partner && (
+          <div className="ml-auto min-w-0 max-w-[55vw]">
+            <AccountPicker
+              compact
+              accounts={accounts}
+              activeAccount={activeAccount}
+              onSelect={onSelect}
+            />
+          </div>
+        )}
       </div>
     </header>
   );
 }
 
-const bottomLink = "flex flex-col items-center justify-center gap-1 py-2 text-[11px] text-muted-foreground transition hover:text-foreground";
-const bottomActive = "flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold text-primary";
+const bottomLink =
+  "flex flex-col items-center justify-center gap-1 py-2 text-[11px] text-muted-foreground transition hover:text-foreground";
+const bottomActive =
+  "flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold text-primary";
 
 export function MobileBottomNav({ ordersActive }: { ordersActive: boolean }) {
   return (
@@ -215,6 +296,7 @@ export function MobileBottomNav({ ordersActive }: { ordersActive: boolean }) {
               to={item.to}
               className={bottomLink}
               activeProps={{ className: bottomActive }}
+              activeOptions={{ exact: true }}
               aria-label={showDot ? `${item.label} (open orders)` : undefined}
             >
               <span className="relative">

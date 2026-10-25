@@ -1,10 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import {
-  TRADING_SERVER_SELECT,
-  normalizeServer,
-  type TradingServer,
-} from "@/lib/account-options";
+import { TRADING_SERVER_SELECT, normalizeServer, type TradingServer } from "@/lib/account-options";
+import { isPartnerRole } from "@/lib/partner";
 
 type AccountInsert = Database["public"]["Tables"]["trading_accounts"]["Insert"];
 
@@ -42,22 +39,32 @@ export async function loadServerForUser(
     throw new Error("That trading server is not accepting new accounts");
   }
   if (server.visibility !== "public") {
-    const { data, error } = await admin
-      .from("server_members")
-      .select("role")
-      .eq("server_id", serverId)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (error) throw new Error("Could not check access to the selected server. Please try again.");
-    if (!data) throw new Error("That trading server is not available");
+    const [{ data: appRole, error: roleError }, { data: member, error: memberError }] =
+      await Promise.all([
+        admin
+          .from("app_roles")
+          .select("role")
+          .eq("user_id", userId)
+          .eq("role", "partner")
+          .maybeSingle(),
+        admin
+          .from("server_members")
+          .select("role")
+          .eq("server_id", serverId)
+          .eq("user_id", userId)
+          .maybeSingle(),
+      ]);
+    if (roleError || memberError) {
+      throw new Error("Could not check access to the selected server. Please try again.");
+    }
+    if (!isPartnerRole(appRole?.role) || !member) {
+      throw new Error("That trading server is not available");
+    }
   }
   return server;
 }
 
-export async function insertAccount(
-  admin: SupabaseClient<Database>,
-  fields: AccountFields,
-) {
+export async function insertAccount(admin: SupabaseClient<Database>, fields: AccountFields) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const login = 10000000 + Math.floor(Math.random() * 90000000);
     const { data, error } = await admin
@@ -77,4 +84,23 @@ export async function insertAccount(
     if (error && error.code !== "23505") throw new Error(error.message);
   }
   throw new Error("Could not allocate an account number. Please try again.");
+}
+
+export async function insertAccountWithInitialTransaction(
+  admin: SupabaseClient<Database>,
+  fields: AccountFields,
+  actorUserId: string,
+) {
+  const account = await insertAccount(admin, fields);
+  const { error } = await admin.from("transactions").insert({
+    user_id: actorUserId,
+    account_id: account.id,
+    kind: "initial",
+    amount: Number(fields.balance),
+  });
+  if (error) {
+    await admin.from("trading_accounts").delete().eq("id", account.id);
+    throw new Error("Could not open the account. Please try again.");
+  }
+  return account;
 }

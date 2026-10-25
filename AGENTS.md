@@ -1,4 +1,5 @@
 <!-- LOVABLE:BEGIN -->
+
 > [!IMPORTANT]
 > This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
 > published git history — force pushing, or rebasing/amending/squashing commits
@@ -7,10 +8,14 @@
 >
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
+
 <!-- LOVABLE:END -->
 
-- Trading accounts belong to a `trading_servers` row; logins are unique per server (`server_id, login`), not globally. New accounts and claims may only select active public servers, `server_id` is immutable after creation, and `server` is a display-name snapshot.
-- Phase 1 is public servers only. Private/invite servers, `server_members`/access codes and partner administration are Phase 2; do not enforce `visibility` or `kind` beyond the active-public checks until those membership tables exist.
+- Trading accounts belong to a `trading_servers` row; logins are unique per server (`server_id, login`), not globally. New accounts require an active server: public servers for traders, or a private server where the caller is both a partner and a member. `server_id` is immutable after creation, and `server` is a display-name snapshot.
+- Private partner servers are hidden from traders at both the server-function and RLS layers. `listTradingServers` returns active public servers only, `loadServerForUser` requires partner access plus membership for private servers, and the `trading_servers` SELECT policy exposes only active public rows. Paused servers reject new accounts while existing accounts keep trading.
+- Partner administration lives in `src/lib/partner.functions.ts` + `/partner` and `/partner/accounts`: owners and admins manage settings and members on `/partner` (owners cannot be removed), and create/manage accounts on the sidebar Accounts page. The Accounts page creates normal accounts owned by the partner through `openDemoAccount`, lists server accounts in the same card layout as the trader accounts page, expands each card to show account details, and can reset the trading password. There is no unowned provisioning or claim flow; never expose credentials through client RLS.
+- There is no trader-facing claim, join or access-code flow. `server_access_codes` and `redeem_server_access_code` are legacy and unused; do not reintroduce them without an explicit requirement.
+- Partner portal access is an app-level `app_roles` row (`partner`), separate from server roles. Only approved partners see the Partner and Accounts navigation and may call partner management functions; partner-role users are kept on `/partner` routes, and other users cannot open them.
 - Mount trading notifications and the identity-transition cache listener once in the root shell so all pages share consistent feedback and session refresh.
 - Keep public navigation session-aware and route registration mode through validated auth search parameters so account buttons open the intended form.
 - Account pages share a browser-safe account hook outside route modules to avoid route code-splitting dependencies.
