@@ -13,7 +13,8 @@ export type MarketQuote = {
 
 export type QuoteMap = Record<string, MarketQuote>;
 
-export type ChartInterval = "1min" | "5min" | "15min" | "30min" | "1h";
+export type ChartInterval =
+  "1min" | "5min" | "15min" | "30min" | "1h" | "4h" | "1day" | "1week" | "1month";
 
 export type MarketCandle = {
   time: number;
@@ -37,6 +38,10 @@ export const CHART_INTERVALS: { value: ChartInterval; label: string; ms: number 
   { value: "15min", label: "15m", ms: 15 * 60_000 },
   { value: "30min", label: "30m", ms: 30 * 60_000 },
   { value: "1h", label: "1H", ms: 60 * 60_000 },
+  { value: "4h", label: "4H", ms: 4 * 60 * 60_000 },
+  { value: "1day", label: "1D", ms: 24 * 60 * 60_000 },
+  { value: "1week", label: "1W", ms: 7 * 24 * 60 * 60_000 },
+  { value: "1month", label: "1M", ms: 30 * 24 * 60 * 60_000 },
 ];
 
 export const PROVIDER_SYMBOLS: Record<string, string> = {
@@ -74,7 +79,12 @@ export function isChartInterval(value: unknown): value is ChartInterval {
   return typeof value === "string" && CHART_INTERVALS.some((item) => item.value === value);
 }
 
-export function withSpread(symbol: string, mid: number, ts: number, source: FeedSource): MarketQuote {
+export function withSpread(
+  symbol: string,
+  mid: number,
+  ts: number,
+  source: FeedSource,
+): MarketQuote {
   const instrument = getInstrument(symbol);
   return {
     symbol,
@@ -97,7 +107,12 @@ export function quoteFor(quotes: QuoteMap | undefined, symbol: string, ts: numbe
   return syntheticQuote(symbol, ts);
 }
 
-export function syntheticCandles(symbol: string, interval: ChartInterval, points = 180, now = Date.now()): MarketCandle[] {
+export function syntheticCandles(
+  symbol: string,
+  interval: ChartInterval,
+  points = 180,
+  now = Date.now(),
+): MarketCandle[] {
   const ms = intervalMs(interval);
   const lastBucket = Math.floor(now / ms) * ms;
   const candles: MarketCandle[] = [];

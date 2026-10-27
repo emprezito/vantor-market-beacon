@@ -5,6 +5,12 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Star } from "lucide-react";
 import { INSTRUMENTS, fmt, getInstrument } from "@/lib/market";
+import {
+  CHART_INDICATOR_KEYS,
+  CHART_INDICATOR_LABELS,
+  DEFAULT_CHART_INDICATORS,
+  type ChartIndicators,
+} from "@/lib/chart-indicators";
 import { CHART_INTERVALS, mergeQuotes, quoteFor, type ChartInterval } from "@/lib/market-data";
 import { isRealtimeSymbol } from "@/lib/realtime-symbols";
 import { calcMargin, calcPnl, closePriceFromQuote, type Side } from "@/lib/trading";
@@ -18,7 +24,16 @@ import { Button } from "@/components/ui/button";
 import { PriceChart } from "@/components/price-chart";
 
 export const Route = createFileRoute("/_authenticated/trade")({
-  head: () => ({ meta: [{ title: "Trade — Vantor" }, { name: "description", content: "Vantor trading terminal with live quotes and positions." }, { property: "og:title", content: "Trade — Vantor" }, { property: "og:description", content: "Trade global markets with fast execution." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
+  head: () => ({
+    meta: [
+      { title: "Trade — Vantor" },
+      { name: "description", content: "Vantor trading terminal with live quotes and positions." },
+      { property: "og:title", content: "Trade — Vantor" },
+      { property: "og:description", content: "Trade global markets with fast execution." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: Trade,
 });
 
@@ -30,6 +45,7 @@ function Trade() {
   const { symbols: watchSymbols, isFavourite, toggle } = useWatchlist();
   const [symbol, setSymbol] = useState("EURUSD");
   const [timeframe, setTimeframe] = useState<ChartInterval>("5min");
+  const [indicators, setIndicators] = useState<ChartIndicators>(DEFAULT_CHART_INDICATORS);
   const [lots, setLots] = useState("0.10");
   const [sl, setSl] = useState("");
   const [tp, setTp] = useState("");
@@ -39,7 +55,11 @@ function Trade() {
     () => [...watchSymbols, symbol, ...(acc?.open ?? []).map((position) => position.symbol)],
     [watchSymbols, symbol, acc?.open],
   );
-  const { quotes: liveQuotes, isLoading: quotesLoading, realtime: realtimeStatus } = useMarketQuotes(feedSymbols);
+  const {
+    quotes: liveQuotes,
+    isLoading: quotesLoading,
+    realtime: realtimeStatus,
+  } = useMarketQuotes(feedSymbols);
   const { candles, source: candleSource } = useMarketCandles(symbol, timeframe, 180);
   const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const open = useServerFn(openTrade);
@@ -48,7 +68,14 @@ function Trade() {
   const place = useMutation({
     mutationFn: async (side: Side) => {
       if (!activeAccount) throw new Error("Open a trading account first");
-      const base = { accountId: activeAccount.id, symbol, side, lots: Number(lots), stopLoss: sl ? Number(sl) : null, takeProfit: tp ? Number(tp) : null };
+      const base = {
+        accountId: activeAccount.id,
+        symbol,
+        side,
+        lots: Number(lots),
+        stopLoss: sl ? Number(sl) : null,
+        takeProfit: tp ? Number(tp) : null,
+      };
       if (orderType === "limit") {
         const r = await placeLimit({ data: { ...base, limitPrice: Number(limitPrice) } });
         return { kind: "limit" as const, ...r };
@@ -58,9 +85,13 @@ function Trade() {
     },
     onSuccess: (r, side) => {
       if (r.kind === "limit") {
-        toast.success(`${side === "buy" ? "Buy" : "Sell"} limit order placed for ${lots} ${symbol} at ${fmt(symbol, Number(limitPrice))}`);
+        toast.success(
+          `${side === "buy" ? "Buy" : "Sell"} limit order placed for ${lots} ${symbol} at ${fmt(symbol, Number(limitPrice))}`,
+        );
       } else {
-        toast.success(`${side === "buy" ? "Bought" : "Sold"} ${lots} ${symbol} at ${fmt(symbol, r.price)}`);
+        toast.success(
+          `${side === "buy" ? "Bought" : "Sold"} ${lots} ${symbol} at ${fmt(symbol, r.price)}`,
+        );
       }
       qc.invalidateQueries({ queryKey: ["account"] });
       qc.invalidateQueries({ queryKey: ["my-accounts"] });
@@ -69,7 +100,10 @@ function Trade() {
   });
 
   const positions = useMemo(() => acc?.open ?? [], [acc?.open]);
-  const chartPositions = useMemo(() => positions.filter((position) => position.symbol === symbol), [positions, symbol]);
+  const chartPositions = useMemo(
+    () => positions.filter((position) => position.symbol === symbol),
+    [positions, symbol],
+  );
   const currency = acc?.account.currency ?? activeAccount?.currency ?? "USD";
   const leverage = Number(acc?.account.leverage ?? activeAccount?.leverage ?? 100);
   const readOnly = activeAccount?.access_role === "investor";
@@ -77,7 +111,10 @@ function Trade() {
     const price = closePriceFromQuote(p.side as Side, quoteFor(quotes, p.symbol, now));
     return s + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), price);
   }, 0);
-  const used = positions.reduce((s, p) => s + calcMargin(p.symbol, Number(p.lots), Number(p.open_price), leverage), 0);
+  const used = positions.reduce(
+    (s, p) => s + calcMargin(p.symbol, Number(p.lots), Number(p.open_price), leverage),
+    0,
+  );
   const balance = acc?.balance ?? 0;
   const equity = balance + floating;
   const q = quoteFor(quotes, symbol, now);
@@ -99,7 +136,9 @@ function Trade() {
         : "bg-amber-500/15 text-amber-700";
   const money = (n: number) => formatMoney(n, currency);
   const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
-  const limitValid = orderType === "market" || (limitPrice.trim() !== "" && Number.isFinite(Number(limitPrice)) && Number(limitPrice) > 0);
+  const limitValid =
+    orderType === "market" ||
+    (limitPrice.trim() !== "" && Number.isFinite(Number(limitPrice)) && Number(limitPrice) > 0);
   const watch = watchSymbols
     .map((s) => INSTRUMENTS.find((i) => i.symbol === s))
     .filter((i): i is (typeof INSTRUMENTS)[number] => i != null);
@@ -114,8 +153,19 @@ function Trade() {
     setLimitPrice(orderType === "limit" ? fmt(next, quoteFor(quotes, next, Date.now()).mid) : "");
   };
 
-  if (isPending) return <main className="p-6" role="status">Loading your account…</main>;
-  if (error) return <main className="space-y-4 p-6"><p role="alert">{error.message}</p><Button onClick={() => refetch()}>Retry</Button></main>;
+  if (isPending)
+    return (
+      <main className="p-6" role="status">
+        Loading your account…
+      </main>
+    );
+  if (error)
+    return (
+      <main className="space-y-4 p-6">
+        <p role="alert">{error.message}</p>
+        <Button onClick={() => refetch()}>Retry</Button>
+      </main>
+    );
   if (!activeAccount) {
     return (
       <main className="space-y-4 p-6">
@@ -131,9 +181,18 @@ function Trade() {
       <div className="hidden flex-wrap items-center justify-between gap-2 sm:flex">
         <h1 className="text-lg font-bold sm:text-2xl">Trading terminal</h1>
       </div>
-      {readOnly && <p className="rounded-md bg-muted px-4 py-2 text-sm text-muted-foreground">Investor access — this account is read-only.</p>}
+      {readOnly && (
+        <p className="rounded-md bg-muted px-4 py-2 text-sm text-muted-foreground">
+          Investor access — this account is read-only.
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
-        {[["Balance", balance], ["Equity", equity], ["Margin used", used], ["Free margin", equity - used]].map(([l, v]) => (
+        {[
+          ["Balance", balance],
+          ["Equity", equity],
+          ["Margin used", used],
+          ["Free margin", equity - used],
+        ].map(([l, v]) => (
           <div key={l as string} className="min-w-0 rounded-xl bg-muted p-3 sm:p-4">
             <div className="text-[11px] text-muted-foreground sm:text-xs">{l}</div>
             <div className="break-words text-base font-bold sm:text-xl">{money(v as number)}</div>
@@ -154,13 +213,19 @@ function Trade() {
               className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
             >
               {INSTRUMENTS.map((i) => (
-                <option key={i.symbol} value={i.symbol}>{i.symbol} · {i.name}</option>
+                <option key={i.symbol} value={i.symbol}>
+                  {i.symbol} · {i.name}
+                </option>
               ))}
             </select>
             <button
               type="button"
               onClick={() => toggle(symbol)}
-              aria-label={isFavourite(symbol) ? `Remove ${symbol} from watchlist` : `Add ${symbol} to watchlist`}
+              aria-label={
+                isFavourite(symbol)
+                  ? `Remove ${symbol} from watchlist`
+                  : `Add ${symbol} to watchlist`
+              }
               title={isFavourite(symbol) ? "Remove from watchlist" : "Add to watchlist"}
               className={`rounded-md border border-input p-1.5 ${isFavourite(symbol) ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
             >
@@ -181,7 +246,10 @@ function Trade() {
             {watch.map((i) => {
               const qq = quoteFor(quotes, i.symbol, now);
               return (
-                <div key={i.symbol} className={`flex items-center border-b last:border-0 ${symbol === i.symbol ? "bg-primary/15" : ""}`}>
+                <div
+                  key={i.symbol}
+                  className={`flex items-center border-b last:border-0 ${symbol === i.symbol ? "bg-primary/15" : ""}`}
+                >
                   <button
                     type="button"
                     onClick={() => selectSymbol(i.symbol)}
@@ -212,12 +280,19 @@ function Trade() {
                 <h2 className="text-lg font-bold sm:text-xl">{symbol}</h2>
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${feedTone}`}
-                  title={q.source === "simulated" ? "Live feed unavailable. Add TWELVE_DATA_API_KEY to the Worker, or check the provider plan and symbol coverage." : undefined}
+                  title={
+                    q.source === "simulated"
+                      ? "Live feed unavailable. Add TWELVE_DATA_API_KEY to the Worker, or check the provider plan and symbol coverage."
+                      : undefined
+                  }
                 >
                   {feedLabel}
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground">{getInstrument(symbol).name} · {CHART_INTERVALS.find((item) => item.value === timeframe)?.label}</p>
+              <p className="text-xs text-muted-foreground">
+                {getInstrument(symbol).name} ·{" "}
+                {CHART_INTERVALS.find((item) => item.value === timeframe)?.label}
+              </p>
             </div>
             <div className="text-right">
               <span className="font-mono text-xl sm:text-2xl">{fmt(symbol, q.mid)}</span>
@@ -243,12 +318,33 @@ function Trade() {
               Candles: {candleSource ?? "loading"}
             </span>
           </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            <span className="mr-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+              Indicators
+            </span>
+            {CHART_INDICATOR_KEYS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={indicators[key]}
+                onClick={() => setIndicators((current) => ({ ...current, [key]: !current[key] }))}
+                className={`rounded border px-2 py-1 text-[11px] ${
+                  indicators[key]
+                    ? "border-primary/40 bg-primary/10 font-semibold text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {CHART_INDICATOR_LABELS[key]}
+              </button>
+            ))}
+          </div>
           <PriceChart
             symbol={symbol}
             quote={q}
             candles={candles}
             interval={timeframe}
             positions={chartPositions}
+            indicators={indicators}
           />
         </section>
 
@@ -268,32 +364,92 @@ function Trade() {
               ))}
             </div>
           </div>
-          <label className="block text-xs text-muted-foreground">Volume (lots)
-            <input className={input} type="number" step="0.01" min="0.01" value={lots} onChange={(e) => setLots(e.target.value)} />
+          <label className="block text-xs text-muted-foreground">
+            Volume (lots)
+            <input
+              className={input}
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={lots}
+              onChange={(e) => setLots(e.target.value)}
+            />
           </label>
           {orderType === "limit" && (
-            <label className="block text-xs text-muted-foreground">Limit price
-              <input className={input} type="number" step="any" min="0" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder={fmt(symbol, q.mid)} />
+            <label className="block text-xs text-muted-foreground">
+              Limit price
+              <input
+                className={input}
+                type="number"
+                step="any"
+                min="0"
+                value={limitPrice}
+                onChange={(e) => setLimitPrice(e.target.value)}
+                placeholder={fmt(symbol, q.mid)}
+              />
             </label>
           )}
-          <label className="block text-xs text-muted-foreground">Stop loss (optional)
-            <input className={input} type="number" step="any" value={sl} onChange={(e) => setSl(e.target.value)} placeholder="Price" />
+          <label className="block text-xs text-muted-foreground">
+            Stop loss (optional)
+            <input
+              className={input}
+              type="number"
+              step="any"
+              value={sl}
+              onChange={(e) => setSl(e.target.value)}
+              placeholder="Price"
+            />
           </label>
-          <label className="block text-xs text-muted-foreground">Take profit (optional)
-            <input className={input} type="number" step="any" value={tp} onChange={(e) => setTp(e.target.value)} placeholder="Price" />
+          <label className="block text-xs text-muted-foreground">
+            Take profit (optional)
+            <input
+              className={input}
+              type="number"
+              step="any"
+              value={tp}
+              onChange={(e) => setTp(e.target.value)}
+              placeholder="Price"
+            />
           </label>
           {orderType === "limit" && (
             <p className="text-[11px] leading-snug text-muted-foreground">
-              Buy limits fill at or below the ask ({fmt(symbol, q.ask)}); sell limits fill at or above the bid ({fmt(symbol, q.bid)}). Stop levels are checked against the limit price.
+              Buy limits fill at or below the ask ({fmt(symbol, q.ask)}); sell limits fill at or
+              above the bid ({fmt(symbol, q.bid)}). Stop levels are checked against the limit price.
             </p>
           )}
-          <p className="text-xs text-muted-foreground">Margin needed: {money(calcMargin(symbol, Number(lots) || 0, orderType === "limit" ? Number(limitPrice) || q.mid : q.mid, leverage))} (1:{leverage})</p>
+          <p className="text-xs text-muted-foreground">
+            Margin needed:{" "}
+            {money(
+              calcMargin(
+                symbol,
+                Number(lots) || 0,
+                orderType === "limit" ? Number(limitPrice) || q.mid : q.mid,
+                leverage,
+              ),
+            )}{" "}
+            (1:{leverage})
+          </p>
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="destructive" disabled={place.isPending || readOnly || !limitValid} onClick={() => place.mutate("sell")} className="h-16 flex-col py-3 font-semibold">
-              {orderType === "limit" ? "Sell limit" : "Sell"}<div className="font-mono text-xs">{fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.bid : q.bid)}</div>
+            <Button
+              variant="destructive"
+              disabled={place.isPending || readOnly || !limitValid}
+              onClick={() => place.mutate("sell")}
+              className="h-16 flex-col py-3 font-semibold"
+            >
+              {orderType === "limit" ? "Sell limit" : "Sell"}
+              <div className="font-mono text-xs">
+                {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.bid : q.bid)}
+              </div>
             </Button>
-            <Button disabled={place.isPending || readOnly || !limitValid} onClick={() => place.mutate("buy")} className="h-16 flex-col bg-accent py-3 font-semibold text-accent-foreground hover:bg-accent/90">
-              {orderType === "limit" ? "Buy limit" : "Buy"}<div className="font-mono text-xs">{fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.ask : q.ask)}</div>
+            <Button
+              disabled={place.isPending || readOnly || !limitValid}
+              onClick={() => place.mutate("buy")}
+              className="h-16 flex-col bg-accent py-3 font-semibold text-accent-foreground hover:bg-accent/90"
+            >
+              {orderType === "limit" ? "Buy limit" : "Buy"}
+              <div className="font-mono text-xs">
+                {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.ask : q.ask)}
+              </div>
             </Button>
           </div>
         </section>

@@ -46,6 +46,7 @@ export type ServerAccount = {
   balance: number;
   currency: string;
   leverage: number;
+  status: string;
   user_id: string | null;
   created_at: string;
 };
@@ -313,7 +314,7 @@ export const listServerAccounts = createServerFn({ method: "POST" })
     const { data: accounts, error } = await supabaseAdmin
       .from("trading_accounts")
       .select(
-        "id, login, nickname, label, kind, server, server_id, access_role, balance, currency, leverage, user_id, created_at",
+        "id, login, nickname, label, kind, server, server_id, access_role, balance, currency, leverage, status, user_id, created_at",
       )
       .eq("server_id", data.serverId)
       .order("created_at", { ascending: false })
@@ -325,28 +326,68 @@ export const listServerAccounts = createServerFn({ method: "POST" })
     })) as ServerAccount[];
   });
 
-export const changeServerAccountPassword = createServerFn({ method: "POST" })
+export const resetServerAccountPasswords = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((i: { serverId: string; accountId: string; password: string }) => {
+  .inputValidator((i: { serverId: string; accountId: string }) => ({
+    serverId: validateServerId(i.serverId),
+    accountId: validateServerId(i.accountId),
+  }))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { genPassword, updateAccountWithEpoch } = await import("@/lib/server-accounts.server");
+    const { hashPassword } = await import("@/lib/password.server");
+    await requirePartnerAccess(supabaseAdmin, context.userId);
+    await requireServerRole(supabaseAdmin, data.serverId, context.userId, ["owner", "admin"]);
+
+    const traderPassword = genPassword(12);
+    const investorPassword = genPassword(12);
+    const [traderHash, investorHash] = await Promise.all([
+      hashPassword(traderPassword),
+      hashPassword(investorPassword),
+    ]);
+
+    const account = await updateAccountWithEpoch(
+      supabaseAdmin,
+      data.accountId,
+      data.serverId,
+      {
+        trader_hash: traderHash,
+        investor_hash: investorHash,
+      },
+      { incrementEpoch: true },
+    );
+
+    return {
+      ok: true,
+      login: account.login,
+      traderPassword,
+      investorPassword,
+    };
+  });
+
+export const setServerAccountStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: { serverId: string; accountId: string; status: string }) => {
     const serverId = validateServerId(i.serverId);
     const accountId = validateServerId(i.accountId);
-    if (typeof i.password !== "string" || i.password.length < 8 || i.password.length > 64) {
-      throw new Error("Trading password must be 8-64 characters");
+    if (i.status !== "active" && i.status !== "disabled") {
+      throw new Error("Choose a valid account status");
     }
-    return { serverId, accountId, password: i.password };
+    return { serverId, accountId, status: i.status };
   })
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { updateAccountWithEpoch } = await import("@/lib/server-accounts.server");
     await requirePartnerAccess(supabaseAdmin, context.userId);
     await requireServerRole(supabaseAdmin, data.serverId, context.userId, ["owner", "admin"]);
-    const { data: account, error } = await supabaseAdmin
-      .from("trading_accounts")
-      .update({ trader_password: data.password })
-      .eq("id", data.accountId)
-      .eq("server_id", data.serverId)
-      .select("id, login")
-      .maybeSingle();
-    if (error) throw new Error("Could not update the trading password. Please try again.");
-    if (!account) throw new Error("That account is not on this server");
-    return { ok: true, login: account.login };
+
+    const account = await updateAccountWithEpoch(
+      supabaseAdmin,
+      data.accountId,
+      data.serverId,
+      { status: data.status },
+      { incrementEpoch: data.status === "disabled" },
+    );
+
+    return { ok: true, login: account.login, status: data.status };
   });

@@ -32,6 +32,33 @@ export type Database = {
         }
         Relationships: []
       }
+      login_attempts: {
+        Row: {
+          attempts: number
+          blocked_until: string | null
+          ip: string
+          login: string
+          updated_at: string
+          window_started_at: string
+        }
+        Insert: {
+          attempts?: number
+          blocked_until?: string | null
+          ip: string
+          login: string
+          updated_at?: string
+          window_started_at?: string
+        }
+        Update: {
+          attempts?: number
+          blocked_until?: string | null
+          ip?: string
+          login?: string
+          updated_at?: string
+          window_started_at?: string
+        }
+        Relationships: []
+      }
       positions: {
         Row: {
           account_id: string | null
@@ -189,7 +216,7 @@ export type Database = {
           created_at: string
           currency: string
           id: string
-          investor_password: string
+          investor_hash: string | null
           issued_by: string | null
           kind: string
           label: string
@@ -198,7 +225,9 @@ export type Database = {
           nickname: string
           server: string
           server_id: string
-          trader_password: string
+          session_epoch: number
+          status: string
+          trader_hash: string | null
           user_id: string | null
         }
         Insert: {
@@ -207,7 +236,7 @@ export type Database = {
           created_at?: string
           currency?: string
           id?: string
-          investor_password: string
+          investor_hash?: string | null
           issued_by?: string | null
           kind?: string
           label?: string
@@ -216,7 +245,9 @@ export type Database = {
           nickname?: string
           server?: string
           server_id: string
-          trader_password: string
+          session_epoch?: number
+          status?: string
+          trader_hash?: string | null
           user_id?: string | null
         }
         Update: {
@@ -225,7 +256,7 @@ export type Database = {
           created_at?: string
           currency?: string
           id?: string
-          investor_password?: string
+          investor_hash?: string | null
           issued_by?: string | null
           kind?: string
           label?: string
@@ -234,7 +265,9 @@ export type Database = {
           nickname?: string
           server?: string
           server_id?: string
-          trader_password?: string
+          session_epoch?: number
+          status?: string
+          trader_hash?: string | null
           user_id?: string | null
         }
         Relationships: []
@@ -299,6 +332,36 @@ export type Database = {
         }
         Relationships: []
       }
+      terminal_idempotency: {
+        Row: {
+          account_id: string
+          created_at: string
+          expires_at: string
+          idempotency_key: string
+          request_hash: string
+          response: Json | null
+          status: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          expires_at?: string
+          idempotency_key: string
+          request_hash: string
+          response?: Json | null
+          status?: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          expires_at?: string
+          idempotency_key?: string
+          request_hash?: string
+          response?: Json | null
+          status?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           account_id: string | null
@@ -357,6 +420,13 @@ export type Database = {
           p_expected_positions: string[]
           p_payload: Json
           p_user: string
+        }
+        Returns: Json
+      }
+      record_login_failure: {
+        Args: {
+          p_ip: string
+          p_login: string
         }
         Returns: Json
       }

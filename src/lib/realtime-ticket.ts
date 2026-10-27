@@ -11,13 +11,21 @@ export type RealtimeTicketClaims = {
   expiresAt: number;
 };
 
-function encodeBase64Url(bytes: Uint8Array): string {
+export function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-async function sign(payload: string, secret: string): Promise<string> {
+export function decodeBase64Url(value: string): string {
+  const padded = value
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return atob(padded);
+}
+
+export async function signHmacPayload(payload: string, secret: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
@@ -29,7 +37,7 @@ async function sign(payload: string, secret: string): Promise<string> {
   return encodeBase64Url(new Uint8Array(signature));
 }
 
-function signaturesMatch(left: string, right: string): boolean {
+export function signaturesMatch(left: string, right: string): boolean {
   if (left.length !== right.length) return false;
   let mismatch = 0;
   for (let index = 0; index < left.length; index += 1) {
@@ -38,13 +46,16 @@ function signaturesMatch(left: string, right: string): boolean {
   return mismatch === 0;
 }
 
-export async function createRealtimeTicket(userId: string, secret: string): Promise<RealtimeTicket> {
+export async function createRealtimeTicket(
+  userId: string,
+  secret: string,
+): Promise<RealtimeTicket> {
   if (!userId) throw new Error("Missing user ID");
   if (!secret) throw new Error("Missing realtime ticket secret");
 
   const expiresAt = Date.now() + TICKET_TTL_MS;
   const payload = `${userId}.${expiresAt}`;
-  return { ticket: `${payload}.${await sign(payload, secret)}`, expiresAt };
+  return { ticket: `${payload}.${await signHmacPayload(payload, secret)}`, expiresAt };
 }
 
 export async function verifyRealtimeTicket(
@@ -62,7 +73,7 @@ export async function verifyRealtimeTicket(
   const expiresAt = Number(expiresRaw);
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
 
-  const expected = await sign(`${userId}.${expiresRaw}`, secret);
+  const expected = await signHmacPayload(`${userId}.${expiresRaw}`, secret);
   if (!signaturesMatch(signature, expected)) return null;
 
   return { userId, expiresAt };

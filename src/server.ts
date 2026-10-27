@@ -3,6 +3,7 @@ import "./lib/error-capture";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { verifyRealtimeTicket } from "./lib/realtime-ticket";
+import { handleTerminalApi } from "./lib/terminal-api/router";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -20,6 +21,11 @@ type DurableObjectNamespace = {
 type WorkerEnv = {
   MARKET_STREAM?: DurableObjectNamespace;
   REALTIME_TICKET_SECRET?: string;
+  TERMINAL_TOKEN_SECRET?: string;
+  ALLOWED_ORIGINS?: string;
+  ALLOW_DEV_ORIGINS?: string;
+  SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
 };
 
 type RealtimeGlobals = typeof globalThis & {
@@ -99,6 +105,9 @@ export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const runtimeEnv = (globalThis as RealtimeGlobals).__env__ ?? ((env ?? {}) as WorkerEnv);
+      const terminal = await handleTerminalApi(request, runtimeEnv, REALTIME_INSTANCE);
+      if (terminal) return terminal;
+
       const realtime = await handleRealtimeRequest(request, runtimeEnv);
       if (realtime) return realtime;
 

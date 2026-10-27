@@ -33,6 +33,14 @@ export const Route = createFileRoute("/_authenticated/accounts")({
 
 const inputCls = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
+type CreatedAccount = {
+  login: number;
+  nickname: string;
+  server: string;
+  traderPassword: string;
+  investorPassword: string;
+};
+
 function AccountsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -58,7 +66,7 @@ function AccountsPage() {
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
   const [leverage, setLeverage] = useState<number>(DEFAULT_LEVERAGE);
   const [size, setSize] = useState(String(DEFAULT_BALANCE));
-  const [traderPass, setTraderPass] = useState("");
+  const [createdAccount, setCreatedAccount] = useState<CreatedAccount | null>(null);
 
   const servers = serversQuery.data ?? [];
   const selectedServer = servers.find((server) => server.id === serverId) ?? servers[0] ?? null;
@@ -95,7 +103,6 @@ function AccountsPage() {
           currency,
           leverage,
           balance: Number(size),
-          password: traderPass,
           serverId: selectedServer?.id ?? "",
         },
       }),
@@ -104,10 +111,14 @@ function AccountsPage() {
       setActiveAccount(acc.id);
       setOpenPanel(false);
       setNickname("");
-      setTraderPass("");
-      toast.success(
-        `Account "${acc.nickname}" (#${acc.login}) created on ${acc.server}. Trader password: ${acc.trader_password} — investor password: ${acc.investor_password}`,
-      );
+      setCreatedAccount({
+        login: acc.login,
+        nickname: acc.nickname,
+        server: acc.server,
+        traderPassword: acc.traderPassword,
+        investorPassword: acc.investorPassword,
+      });
+      toast.success(`Account #${acc.login} was created`);
     },
     onError: (e) => toast.error(e.message),
   });
@@ -278,25 +289,42 @@ function AccountsPage() {
                 </p>
               </div>
               <div className="sm:col-span-2">
-                <Label htmlFor="apass">Trader password</Label>
-                <Input
-                  id="apass"
-                  type="text"
-                  value={traderPass}
-                  onChange={(e) => setTraderPass(e.target.value)}
-                  placeholder="Min. 8 characters"
-                />
-              </div>
-              <div className="sm:col-span-2">
                 <Button type="submit" disabled={openMut.isPending || !selectedServer}>
                   {openMut.isPending ? "Creating…" : "Create account"}
                 </Button>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  An investor password is generated automatically after creation.
+                  Trader and investor passwords are generated automatically and shown once after
+                  creation.
                 </p>
               </div>
             </form>
           </div>
+        </section>
+      )}
+
+      {createdAccount && (
+        <section className="mt-4 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
+          <p className="font-semibold">
+            Account #{createdAccount.login} created on {createdAccount.server}
+          </p>
+          <p className="mt-1">
+            Trader password: <span className="font-mono">{createdAccount.traderPassword}</span>
+          </p>
+          <p>
+            Investor password: <span className="font-mono">{createdAccount.investorPassword}</span>
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            These passwords are shown once. Copy them now.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-2"
+            onClick={() => setCreatedAccount(null)}
+          >
+            Dismiss
+          </Button>
         </section>
       )}
 
@@ -309,6 +337,7 @@ function AccountsPage() {
         {accounts.map((a) => {
           const isOpen = expanded === a.id;
           const readOnly = a.access_role === "investor";
+          const disabled = a.status === "disabled";
           return (
             <article key={a.id} className="rounded-lg border bg-card p-4 sm:p-5">
               <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -323,6 +352,11 @@ function AccountsPage() {
                 {readOnly && (
                   <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                     Investor (read-only)
+                  </span>
+                )}
+                {disabled && (
+                  <span className="rounded bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
+                    Disabled
                   </span>
                 )}
                 <button
@@ -344,14 +378,14 @@ function AccountsPage() {
                       setActiveAccount(a.id);
                       navigate({ to: "/trade" });
                     }}
-                    disabled={readOnly}
+                    disabled={readOnly || disabled}
                   >
                     Trade
                   </Button>
                   <Button
                     variant="outline"
                     onClick={() => setBalanceFor(balanceFor === a.id ? null : a.id)}
-                    disabled={readOnly}
+                    disabled={readOnly || disabled}
                   >
                     Set Balance
                   </Button>

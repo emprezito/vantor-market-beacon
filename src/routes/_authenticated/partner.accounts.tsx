@@ -5,9 +5,10 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { ChevronDown, ChevronUp, KeyRound } from "lucide-react";
 import {
-  changeServerAccountPassword,
   listMyServers,
   listServerAccounts,
+  resetServerAccountPasswords,
+  setServerAccountStatus,
 } from "@/lib/partner.functions";
 import { openDemoAccount } from "@/lib/accounts.functions";
 import {
@@ -39,11 +40,12 @@ export const Route = createFileRoute("/_authenticated/partner/accounts")({
 const inputCls = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 type CreatedAccount = {
+  mode: "created" | "reset";
   login: number;
   nickname: string;
   server: string;
-  trader_password: string;
-  investor_password: string;
+  traderPassword: string;
+  investorPassword: string;
 };
 
 type AccountDraft = {
@@ -52,7 +54,6 @@ type AccountDraft = {
   currency: string;
   leverage: number;
   balance: string;
-  password: string;
 };
 
 function PartnerAccountsPage() {
@@ -60,7 +61,8 @@ function PartnerAccountsPage() {
   const listServers = useServerFn(listMyServers);
   const listAccounts = useServerFn(listServerAccounts);
   const openAccount = useServerFn(openDemoAccount);
-  const changePassword = useServerFn(changeServerAccountPassword);
+  const resetPasswords = useServerFn(resetServerAccountPasswords);
+  const setStatus = useServerFn(setServerAccountStatus);
 
   const serversQuery = useQuery({ queryKey: ["my-servers"], queryFn: () => listServers() });
   const servers = serversQuery.data ?? [];
@@ -71,8 +73,6 @@ function PartnerAccountsPage() {
 
   const [openPanel, setOpenPanel] = useState(false);
   const [expandedAccountId, setExpandedAccountId] = useState<string | null>(null);
-  const [passwordFor, setPasswordFor] = useState<string | null>(null);
-  const [newPassword, setNewPassword] = useState("");
   const [createdAccount, setCreatedAccount] = useState<CreatedAccount | null>(null);
   const [accountForm, setAccountForm] = useState<AccountDraft>({
     nickname: "",
@@ -80,7 +80,6 @@ function PartnerAccountsPage() {
     currency: DEFAULT_CURRENCY,
     leverage: DEFAULT_LEVERAGE,
     balance: String(DEFAULT_BALANCE),
-    password: "",
   });
 
   const accountsQuery = useQuery({
@@ -116,12 +115,9 @@ function PartnerAccountsPage() {
       currency: defaults.currency,
       leverage: defaults.leverage,
       balance: String(defaults.balance),
-      password: "",
     });
     setCreatedAccount(null);
     setExpandedAccountId(null);
-    setPasswordFor(null);
-    setNewPassword("");
   }, [selected]);
 
   const createAccountMut = useMutation({
@@ -134,32 +130,63 @@ function PartnerAccountsPage() {
           currency: accountForm.currency,
           leverage: accountForm.leverage,
           balance: Number(accountForm.balance),
-          password: accountForm.password,
         },
       }),
     onSuccess: (account) => {
       qc.invalidateQueries({ queryKey: ["server-accounts", selected!.id] });
       qc.invalidateQueries({ queryKey: ["my-servers"] });
       qc.invalidateQueries({ queryKey: ["my-accounts"] });
-      setCreatedAccount(account);
-      setAccountForm((current) => ({ ...current, nickname: "", password: "" }));
+      setCreatedAccount({
+        mode: "created",
+        login: account.login,
+        nickname: account.nickname,
+        server: account.server,
+        traderPassword: account.traderPassword,
+        investorPassword: account.investorPassword,
+      });
+      setAccountForm((current) => ({ ...current, nickname: "" }));
       toast.success(`Account #${account.login} was created`);
     },
     onError: (e) => toast.error(e.message),
   });
 
-  const changePasswordMut = useMutation({
-    mutationFn: () => {
-      if (!selected || !passwordFor) throw new Error("Choose an account first");
-      return changePassword({
-        data: { serverId: selected.id, accountId: passwordFor, password: newPassword },
+  const resetPasswordMut = useMutation({
+    mutationFn: (account: { id: string }) => {
+      if (!selected) throw new Error("Choose a server first");
+      return resetPasswords({
+        data: { serverId: selected.id, accountId: account.id },
+      });
+    },
+    onSuccess: (result, account) => {
+      qc.invalidateQueries({ queryKey: ["server-accounts", selected?.id] });
+      const current = accountsQuery.data?.find((item) => item.id === account.id);
+      setCreatedAccount({
+        mode: "reset",
+        login: result.login,
+        nickname: current?.nickname ?? "",
+        server: current?.server ?? selected?.name ?? "",
+        traderPassword: result.traderPassword,
+        investorPassword: result.investorPassword,
+      });
+      toast.success(`Passwords reset for #${result.login}`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const statusMut = useMutation({
+    mutationFn: (input: { account: { id: string }; status: "active" | "disabled" }) => {
+      if (!selected) throw new Error("Choose a server first");
+      return setStatus({
+        data: { serverId: selected.id, accountId: input.account.id, status: input.status },
       });
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["server-accounts", selected?.id] });
-      setPasswordFor(null);
-      setNewPassword("");
-      toast.success(`Trading password updated for #${result.login}`);
+      toast.success(
+        result.status === "disabled"
+          ? `Account #${result.login} was disabled`
+          : `Account #${result.login} was enabled`,
+      );
     },
     onError: (e) => toast.error(e.message),
   });
@@ -324,29 +351,14 @@ function PartnerAccountsPage() {
                 {Number(selected.max_balance).toLocaleString("en-US")} {accountForm.currency}
               </p>
             </div>
-            <div>
-              <Label htmlFor="account-password">Trader password</Label>
-              <Input
-                id="account-password"
-                type="password"
-                autoComplete="new-password"
-                value={accountForm.password}
-                onChange={(event) =>
-                  setAccountForm((current) => ({ ...current, password: event.target.value }))
-                }
-                placeholder="Min. 8 characters"
-                required
-                minLength={8}
-                maxLength={64}
-              />
-            </div>
             <div className="sm:col-span-2">
-              <Button
-                type="submit"
-                disabled={createAccountMut.isPending || accountForm.password.length < 8}
-              >
+              <Button type="submit" disabled={createAccountMut.isPending}>
                 {createAccountMut.isPending ? "Creating…" : "Create account"}
               </Button>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Trader and investor passwords are generated automatically and shown once after
+                creation.
+              </p>
             </div>
           </form>
         </section>
@@ -355,13 +367,18 @@ function PartnerAccountsPage() {
       {createdAccount && (
         <section className="rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
           <p className="font-semibold">
-            Account #{createdAccount.login} created on {createdAccount.server}
+            {createdAccount.mode === "created"
+              ? `Account #${createdAccount.login} created on ${createdAccount.server}`
+              : `Passwords reset for #${createdAccount.login}${createdAccount.server ? ` on ${createdAccount.server}` : ""}`}
           </p>
           <p className="mt-1">
-            Trader password: <span className="font-mono">{createdAccount.trader_password}</span>
+            Trader password: <span className="font-mono">{createdAccount.traderPassword}</span>
           </p>
           <p>
-            Investor password: <span className="font-mono">{createdAccount.investor_password}</span>
+            Investor password: <span className="font-mono">{createdAccount.investorPassword}</span>
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            These passwords are shown once. Copy them now.
           </p>
           <Button
             type="button"
@@ -390,7 +407,6 @@ function PartnerAccountsPage() {
           <div className="space-y-4">
             {accountsQuery.data?.map((account) => {
               const isOpen = expandedAccountId === account.id;
-              const isChangingPassword = passwordFor === account.id;
               return (
                 <article key={account.id} className="rounded-lg border bg-card p-4 sm:p-5">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -402,14 +418,15 @@ function PartnerAccountsPage() {
                       {account.label}
                     </span>
                     <span className="font-mono font-semibold"># {account.login}</span>
+                    {account.status === "disabled" && (
+                      <span className="rounded bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
+                        Disabled
+                      </span>
+                    )}
                     <button
                       type="button"
                       className="ml-auto rounded p-1 opacity-60 transition hover:bg-muted hover:opacity-100"
-                      onClick={() => {
-                        setExpandedAccountId(isOpen ? null : account.id);
-                        setPasswordFor(null);
-                        setNewPassword("");
-                      }}
+                      onClick={() => setExpandedAccountId(isOpen ? null : account.id)}
                       aria-label="Toggle account details"
                       aria-expanded={isOpen}
                     >
@@ -460,64 +477,44 @@ function PartnerAccountsPage() {
 
                       <div className="mt-3 rounded-md border p-3">
                         <p className="flex items-center gap-2 font-medium">
-                          <KeyRound className="h-4 w-4" /> Trading password
+                          <KeyRound className="h-4 w-4" /> Credentials
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Set a new password for this trading account.
+                          Reset both trading passwords. Existing terminal sessions are signed out.
                         </p>
-                        {isChangingPassword ? (
-                          <form
-                            className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end"
-                            onSubmit={(event) => {
-                              event.preventDefault();
-                              changePasswordMut.mutate();
-                            }}
-                          >
-                            <div className="w-full">
-                              <Label htmlFor={`new-password-${account.id}`}>New password</Label>
-                              <Input
-                                id={`new-password-${account.id}`}
-                                type="password"
-                                autoComplete="new-password"
-                                value={newPassword}
-                                onChange={(event) => setNewPassword(event.target.value)}
-                                placeholder="Min. 8 characters"
-                                minLength={8}
-                                maxLength={64}
-                                required
-                              />
-                            </div>
-                            <Button
-                              type="submit"
-                              disabled={changePasswordMut.isPending || newPassword.length < 8}
-                            >
-                              {changePasswordMut.isPending ? "Saving…" : "Save password"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => {
-                                setPasswordFor(null);
-                                setNewPassword("");
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                          </form>
-                        ) : (
+                        <div className="mt-3 flex flex-wrap gap-2">
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
-                            className="mt-2"
-                            onClick={() => {
-                              setPasswordFor(account.id);
-                              setNewPassword("");
-                            }}
+                            onClick={() => resetPasswordMut.mutate(account)}
+                            disabled={resetPasswordMut.isPending}
                           >
-                            Change trading password
+                            {resetPasswordMut.isPending ? "Resetting…" : "Reset passwords"}
                           </Button>
-                        )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              statusMut.mutate({
+                                account,
+                                status: account.status === "disabled" ? "active" : "disabled",
+                              })
+                            }
+                            disabled={statusMut.isPending}
+                          >
+                            {statusMut.isPending
+                              ? "Saving…"
+                              : account.status === "disabled"
+                                ? "Enable account"
+                                : "Disable account"}
+                          </Button>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Disabling an account signs out active terminal sessions and blocks new
+                          logins.
+                        </p>
                       </div>
                     </div>
                   )}

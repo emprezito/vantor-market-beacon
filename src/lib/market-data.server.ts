@@ -129,14 +129,21 @@ function candleTtlMs(interval: ChartInterval): number {
   if (interval === "5min") return 120_000;
   if (interval === "15min") return 300_000;
   if (interval === "30min") return 600_000;
-  return 900_000;
+  if (interval === "1h") return 900_000;
+  if (interval === "4h") return 15 * 60_000;
+  if (interval === "1day") return 30 * 60_000;
+  if (interval === "1week") return 2 * 60 * 60_000;
+  return 6 * 60 * 60_000;
 }
 
 function providerMessage(payload: TwelveError): string {
   return payload.message || `Twelve Data request failed${payload.code ? ` (${payload.code})` : ""}`;
 }
 
-async function fetchTwelve<T extends TwelveError>(path: string, params: Record<string, string>): Promise<T | null> {
+async function fetchTwelve<T extends TwelveError>(
+  path: string,
+  params: Record<string, string>,
+): Promise<T | null> {
   const states = keyStates();
   if (states.length === 0) return null;
 
@@ -236,7 +243,11 @@ function parseCandle(value: TimeSeriesValue): MarketCandle | null {
   return { time, open, high, low, close };
 }
 
-async function fetchLiveCandles(symbol: string, interval: ChartInterval, points: number): Promise<MarketCandles> {
+async function fetchLiveCandles(
+  symbol: string,
+  interval: ChartInterval,
+  points: number,
+): Promise<MarketCandles> {
   const providerSymbol = PROVIDER_SYMBOLS[symbol];
   if (!providerSymbol) throw new Error(`No market data mapping for ${symbol}`);
 
@@ -258,7 +269,11 @@ async function fetchLiveCandles(symbol: string, interval: ChartInterval, points:
   return { symbol, interval, candles, source: "live", fetchedAt: Date.now() };
 }
 
-export async function loadCandles(symbol: string, interval: ChartInterval, points = 180): Promise<MarketCandles> {
+export async function loadCandles(
+  symbol: string,
+  interval: ChartInterval,
+  points = 180,
+): Promise<MarketCandles> {
   const safeInterval = isChartInterval(interval) ? interval : "1min";
   const safePoints = Math.min(500, Math.max(20, Math.round(points)));
   if (!PROVIDER_SYMBOLS[symbol]) {

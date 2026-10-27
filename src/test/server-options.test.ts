@@ -30,7 +30,6 @@ const input = {
   currency: "USD",
   leverage: 100,
   balance: 10000,
-  password: "sufficient-pass",
 };
 
 describe("trading server options", () => {

@@ -62,8 +62,22 @@ describe("market data feed", () => {
   });
 
   it("merges account and live quote maps with the live map winning", () => {
-    const base: MarketQuote = { symbol: "EURUSD", bid: 1.1, ask: 1.1002, mid: 1.1001, ts: 1, source: "cached" };
-    const live: MarketQuote = { symbol: "EURUSD", bid: 1.2, ask: 1.2002, mid: 1.2001, ts: 2, source: "live" };
+    const base: MarketQuote = {
+      symbol: "EURUSD",
+      bid: 1.1,
+      ask: 1.1002,
+      mid: 1.1001,
+      ts: 1,
+      source: "cached",
+    };
+    const live: MarketQuote = {
+      symbol: "EURUSD",
+      bid: 1.2,
+      ask: 1.2002,
+      mid: 1.2001,
+      ts: 2,
+      source: "live",
+    };
     const merged = mergeQuotes({ EURUSD: base }, { EURUSD: live });
     expect(merged["EURUSD"]).toEqual(live);
   });
@@ -85,10 +99,23 @@ describe("market data feed", () => {
   });
 
   it("validates chart intervals and exposes all supported intervals", () => {
-    expect(CHART_INTERVALS.map((item) => item.value)).toEqual(["1min", "5min", "15min", "30min", "1h"]);
+    expect(CHART_INTERVALS.map((item) => item.value)).toEqual([
+      "1min",
+      "5min",
+      "15min",
+      "30min",
+      "1h",
+      "4h",
+      "1day",
+      "1week",
+      "1month",
+    ]);
     expect(isChartInterval("5min")).toBe(true);
-    expect(isChartInterval("4h")).toBe(false);
+    expect(isChartInterval("4h")).toBe(true);
+    expect(isChartInterval("1day")).toBe(true);
+    expect(isChartInterval("2h")).toBe(false);
     expect(intervalMs("1h")).toBe(3_600_000);
+    expect(intervalMs("1day")).toBe(86_400_000);
   });
 
   it("prices entries at the ask for buys and closes at the bid", () => {

@@ -29,7 +29,7 @@ export const listMyAccounts = createServerFn({ method: "POST" })
     const { data, error } = await context.supabase
       .from("trading_accounts")
       .select(
-        "id, login, nickname, label, kind, server, server_id, access_role, balance, currency, leverage, created_at",
+        "id, login, nickname, label, kind, server, server_id, access_role, balance, currency, leverage, status, created_at",
       )
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false });
@@ -59,7 +59,6 @@ export const openDemoAccount = createServerFn({ method: "POST" })
         balance: account.balance,
         currency: account.currency,
         leverage: account.leverage,
-        trader_password: account.password,
         server: server.name,
         server_id: server.id,
       },

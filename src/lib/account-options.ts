@@ -16,7 +16,6 @@ export type NewAccountInput = {
   currency: string;
   leverage: number;
   balance: number;
-  password: string;
 };
 
 export type TradingServer = {
@@ -130,8 +129,7 @@ export function validateNewAccount(i: NewAccountInput) {
   if (!Number.isFinite(balance) || balance < BALANCE_MIN || balance > BALANCE_MAX || Math.abs(balance * 100 - Math.round(balance * 100)) > 1e-8) {
     throw new Error(`Starting balance must be between ${BALANCE_MIN} and ${BALANCE_MAX.toLocaleString("en-US")} with at most two decimals`);
   }
-  if (typeof i.password !== "string" || i.password.length < 8 || i.password.length > 64) throw new Error("Password must be 8–64 characters");
-  return { nickname, accountType: i.accountType, currency: i.currency, leverage, balance, password: i.password };
+  return { nickname, accountType: i.accountType, currency: i.currency, leverage, balance };
 }
 
 export function formatMoney(value: number, currency: string = "USD") {
