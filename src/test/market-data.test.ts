@@ -94,6 +94,7 @@ describe("market data feed", () => {
       expect(candle.high).toBeGreaterThanOrEqual(candle.close);
       expect(candle.low).toBeLessThanOrEqual(candle.open);
       expect(candle.low).toBeLessThanOrEqual(candle.close);
+      expect(candle.volume).toBeGreaterThan(0);
       if (index > 0) expect(candle.time).toBeGreaterThan(candles[index - 1]!.time);
     }
   });

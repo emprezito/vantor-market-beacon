@@ -34,6 +34,7 @@ type TimeSeriesValue = {
   high?: string;
   low?: string;
   close?: string;
+  volume?: string;
 };
 
 type TimeSeriesResponse = TwelveError & {
@@ -240,7 +241,15 @@ function parseCandle(value: TimeSeriesValue): MarketCandle | null {
   const low = Number(value.low);
   const close = Number(value.close);
   if (![time, open, high, low, close].every(Number.isFinite)) return null;
-  return { time, open, high, low, close };
+  const volume = value.volume == null ? null : Number(value.volume);
+  return {
+    time,
+    open,
+    high,
+    low,
+    close,
+    ...(volume != null && Number.isFinite(volume) ? { volume } : {}),
+  };
 }
 
 async function fetchLiveCandles(

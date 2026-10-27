@@ -22,6 +22,7 @@ export type MarketCandle = {
   high: number;
   low: number;
   close: number;
+  volume?: number;
 };
 
 export type MarketCandles = {
@@ -128,12 +129,16 @@ export function syntheticCandles(
       midPrice(symbol, start + ms * 0.5),
       midPrice(symbol, start + ms * 0.75),
     ];
+    const high = Math.max(...samples);
+    const low = Math.min(...samples);
+    const spread = Math.max(getInstrument(symbol).spread, 1e-9);
     candles.push({
       time: Math.floor(start / 1000),
       open,
-      high: Math.max(...samples),
-      low: Math.min(...samples),
+      high,
+      low,
       close,
+      volume: Math.max(1, Math.round(100 + ((high - low) / spread) * 25 + (start % 11) * 7)),
     });
   }
   return candles;

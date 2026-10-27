@@ -104,6 +104,14 @@ function Trade() {
     () => positions.filter((position) => position.symbol === symbol),
     [positions, symbol],
   );
+  const chartPendingOrders = useMemo(
+    () => (acc?.pending ?? []).filter((order) => order.symbol === symbol),
+    [acc?.pending, symbol],
+  );
+  const chartClosedPositions = useMemo(
+    () => (acc?.closed ?? []).filter((position) => position.symbol === symbol),
+    [acc?.closed, symbol],
+  );
   const currency = acc?.account.currency ?? activeAccount?.currency ?? "USD";
   const leverage = Number(acc?.account.leverage ?? activeAccount?.leverage ?? 100);
   const readOnly = activeAccount?.access_role === "investor";
@@ -344,6 +352,8 @@ function Trade() {
             candles={candles}
             interval={timeframe}
             positions={chartPositions}
+            pendingOrders={chartPendingOrders}
+            closedPositions={chartClosedPositions}
             indicators={indicators}
           />
         </section>
