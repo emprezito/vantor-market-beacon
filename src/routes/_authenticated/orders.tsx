@@ -27,7 +27,10 @@ function OrdersPage() {
   const navigate = useNavigate();
   const { data: acc, activeAccount, isPending, error, refetch } = useAccount();
   const symbols = useMemo(
-    () => [...(acc?.open ?? []).map((position) => position.symbol), ...(acc?.pending ?? []).map((order) => order.symbol)],
+    () => [
+      ...(acc?.open ?? []).map((position) => position.symbol),
+      ...(acc?.pending ?? []).map((order) => order.symbol),
+    ],
     [acc?.open, acc?.pending],
   );
   const { quotes: liveQuotes } = useMarketQuotes(symbols);
@@ -59,8 +62,19 @@ function OrdersPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (isPending) return <main className="px-4 py-6 sm:px-6" role="status">Loading orders…</main>;
-  if (error) return <main className="space-y-4 px-4 py-6 sm:px-6"><p role="alert">{error.message}</p><Button onClick={() => refetch()}>Retry</Button></main>;
+  if (isPending)
+    return (
+      <main className="px-4 py-6 sm:px-6" role="status">
+        Loading orders…
+      </main>
+    );
+  if (error)
+    return (
+      <main className="space-y-4 px-4 py-6 sm:px-6">
+        <p role="alert">{error.message}</p>
+        <Button onClick={() => refetch()}>Retry</Button>
+      </main>
+    );
   if (!activeAccount) {
     return (
       <main className="space-y-4 px-4 py-6 sm:px-6">
@@ -79,12 +93,19 @@ function OrdersPage() {
     <main className="mx-auto max-w-7xl space-y-3 px-3 pb-6 pt-3 sm:space-y-6 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-lg font-bold sm:text-2xl">Orders</h1>
-        <p className="text-xs text-muted-foreground sm:text-sm">{activeAccount.nickname} · #{activeAccount.login}</p>
+        <p className="text-xs text-muted-foreground sm:text-sm">
+          {activeAccount.nickname} · #{activeAccount.login}
+        </p>
       </div>
-      {readOnly && <p className="rounded-md bg-muted px-4 py-2 text-sm text-muted-foreground">Investor access — this account is read-only.</p>}
+      {readOnly && (
+        <p className="rounded-md bg-muted px-4 py-2 text-sm text-muted-foreground">
+          Investor access — this account is read-only.
+        </p>
+      )}
       <OpenPositionsSection
         positions={positions}
         currency={activeAccount.currency}
+        fxRate={Number(acc?.fxRate ?? 1)}
         now={now}
         quotes={quotes}
         readOnly={readOnly}

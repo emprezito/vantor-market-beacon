@@ -110,6 +110,7 @@ const view: AccountView = {
     status: "active",
   },
   balance: 10000,
+  fxRate: 1,
   open: [],
   pending: [],
   closed: [],

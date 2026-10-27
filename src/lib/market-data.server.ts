@@ -15,6 +15,7 @@ import {
 
 const API_URL = "https://api.twelvedata.com";
 const DEFAULT_QUOTE_TTL_MS = 60_000;
+const DEFAULT_FX_RATE_TTL_MS = 15 * 60_000;
 const PROVIDER_FAILURE_COOLDOWN_MS = 60_000;
 const PROVIDER_PLAN_COOLDOWN_MS = 15 * 60_000;
 
@@ -69,10 +70,13 @@ function failureRetryMs(error: unknown): number {
 
 const quoteCache = new Map<string, { quote: MarketQuote; fetchedAt: number }>();
 const candleCache = new Map<string, { series: MarketCandles; fetchedAt: number }>();
+const fxRateCache = new Map<string, { rate: number; fetchedAt: number }>();
 const inFlightQuotes = new Map<string, Promise<MarketQuote>>();
 const inFlightCandles = new Map<string, Promise<MarketCandles>>();
+const inFlightFxRates = new Map<string, Promise<number>>();
 const quoteRetryAfter = new Map<string, number>();
 const candleRetryAfter = new Map<string, number>();
+const fxRateRetryAfter = new Map<string, number>();
 let keys: KeyState[] | null = null;
 let keyCursor = 0;
 
@@ -233,6 +237,52 @@ export async function loadQuotes(symbols: string[]): Promise<QuoteMap> {
   return Object.fromEntries(quotes.map((quote) => [quote.symbol, quote]));
 }
 
+function fxRateTtlMs(): number {
+  const raw = Number(process.env["MARKET_FX_RATE_TTL_MS"]);
+  return Number.isFinite(raw) && raw >= 1_000 ? raw : DEFAULT_FX_RATE_TTL_MS;
+}
+
+async function fetchProviderRate(pair: string): Promise<number> {
+  const payload = await fetchTwelve<PriceResponse>("/price", { symbol: pair });
+  if (!payload) throw new Error("Market data key is not configured");
+  const rate = Number(payload.price);
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error(`Invalid market rate for ${pair}`);
+  return rate;
+}
+
+export async function loadProviderRate(pair: string): Promise<number> {
+  const key = pair.trim().toUpperCase();
+  if (!key) throw new Error("Market rate pair is required");
+
+  const cached = fxRateCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.fetchedAt < fxRateTtlMs()) return cached.rate;
+
+  const retryAfter = fxRateRetryAfter.get(key);
+  if (retryAfter && now < retryAfter) {
+    if (cached) return cached.rate;
+    throw new Error(`Market rate unavailable for ${pair}`);
+  }
+
+  const pending = inFlightFxRates.get(key);
+  if (pending) return pending;
+
+  const request = fetchProviderRate(key)
+    .then((rate) => {
+      fxRateRetryAfter.delete(key);
+      fxRateCache.set(key, { rate, fetchedAt: Date.now() });
+      return rate;
+    })
+    .catch((error) => {
+      fxRateRetryAfter.set(key, Date.now() + failureRetryMs(error));
+      throw error;
+    })
+    .finally(() => inFlightFxRates.delete(key));
+
+  inFlightFxRates.set(key, request);
+  return request;
+}
+
 function parseCandle(value: TimeSeriesValue): MarketCandle | null {
   if (!value.datetime || !value.open || !value.high || !value.low || !value.close) return null;
   const time = Math.floor(Date.parse(`${value.datetime.replace(" ", "T")}Z`) / 1000);
@@ -342,10 +392,13 @@ export async function loadCandles(
 export function resetMarketDataCache() {
   quoteCache.clear();
   candleCache.clear();
+  fxRateCache.clear();
   inFlightQuotes.clear();
   inFlightCandles.clear();
+  inFlightFxRates.clear();
   quoteRetryAfter.clear();
   candleRetryAfter.clear();
+  fxRateRetryAfter.clear();
   keys = null;
   keyCursor = 0;
 }

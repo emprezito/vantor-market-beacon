@@ -16,6 +16,7 @@ import {
   type OrderInput,
 } from "./trading-validation";
 import { quoteFor, type QuoteMap } from "./market-data";
+import { loadFxRate } from "./fx.server";
 
 type AccountRow = Database["public"]["Tables"]["trading_accounts"]["Row"];
 type PositionRow = Database["public"]["Tables"]["positions"]["Row"];
@@ -60,6 +61,7 @@ export type AccountSummary = {
 export type AccountView = {
   account: AccountSummary;
   balance: number;
+  fxRate: number;
   open: PositionRow[];
   pending: PendingOrderRow[];
   closed: PositionRow[];
@@ -153,7 +155,13 @@ export async function snapshot(
   };
 }
 
-function exposure(state: TradingState, quotes: QuoteMap, now: number, leverage: number) {
+function exposure(
+  state: TradingState,
+  quotes: QuoteMap,
+  now: number,
+  leverage: number,
+  fxRate: number,
+) {
   return state.positions.reduce(
     (result, position) => {
       const price = closePriceFromQuote(
@@ -163,7 +171,13 @@ function exposure(state: TradingState, quotes: QuoteMap, now: number, leverage: 
       return {
         used:
           result.used +
-          calcMargin(position.symbol, Number(position.lots), Number(position.open_price), leverage),
+          calcMargin(
+            position.symbol,
+            Number(position.lots),
+            Number(position.open_price),
+            leverage,
+          ) *
+            fxRate,
         floating:
           result.floating +
           calcPnl(
@@ -172,7 +186,8 @@ function exposure(state: TradingState, quotes: QuoteMap, now: number, leverage: 
             Number(position.lots),
             Number(position.open_price),
             price,
-          ),
+          ) *
+            fxRate,
       };
     },
     { used: 0, floating: 0 },
@@ -221,6 +236,7 @@ async function closeOne(
     position.side as Side,
     quoteFor(prices, position.symbol, Date.now()),
   );
+  const fxRate = await loadFxRate(account.currency);
   const pnl = r2(
     calcPnl(
       position.symbol,
@@ -228,7 +244,7 @@ async function closeOne(
       Number(position.lots),
       Number(position.open_price),
       price,
-    ),
+    ) * fxRate,
   );
   const result = await apply(admin, account, state, "close", { id, price, pnl, reason });
   return { price, pnl, balance: Number(result.balance ?? state.balance + pnl) };
@@ -253,6 +269,7 @@ async function fillDueLimitOrders(
     ...orders.map((order) => order.symbol),
     ...initial.positions.map((position) => position.symbol),
   ]);
+  const fxRate = await loadFxRate(account.currency);
 
   for (const order of orders) {
     const now = Date.now();
@@ -261,8 +278,8 @@ async function fillDueLimitOrders(
 
     const state = await snapshot(db, account);
     const leverage = Number(state.account.leverage) || 100;
-    const { used, floating } = exposure(state, quotes, now, leverage);
-    const margin = calcMargin(order.symbol, Number(order.lots), price, leverage);
+    const { used, floating } = exposure(state, quotes, now, leverage, fxRate);
+    const margin = calcMargin(order.symbol, Number(order.lots), price, leverage) * fxRate;
     if (margin > state.balance + floating - used) continue;
 
     await apply(admin, account, state, "fill_limit", {
@@ -343,9 +360,11 @@ export async function getAccountView(
     ...state.positions.map((position) => position.symbol),
     ...(pending.data ?? []).map((order) => order.symbol),
   ]);
+  const fxRate = await loadFxRate(state.account.currency);
   return {
     account: accountSummary(state.account),
     balance: state.balance,
+    fxRate,
     open: state.positions,
     pending: pending.data ?? [],
     closed: closed.data ?? [],
@@ -389,8 +408,9 @@ export async function openMarketOrder(
     throw new Error("Take profit is on the wrong side of the price");
   }
   const leverage = Number(state.account.leverage) || 100;
-  const { used, floating } = exposure(state, quotes, now, leverage);
-  const margin = calcMargin(order.symbol, order.lots, price, leverage);
+  const fxRate = await loadFxRate(account.currency);
+  const { used, floating } = exposure(state, quotes, now, leverage, fxRate);
+  const margin = r2(calcMargin(order.symbol, order.lots, price, leverage) * fxRate);
   if (margin > state.balance + floating - used) throw new Error("Not enough free margin");
   const result = await apply(admin, account, state, "open", {
     ...order,
@@ -520,7 +540,14 @@ export async function moveFunds(
   const state = await requireTradable(db, account);
   const now = Date.now();
   const quotes = await loadQuoteMap(state.positions.map((position) => position.symbol));
-  const { used, floating } = exposure(state, quotes, now, Number(state.account.leverage) || 100);
+  const fxRate = await loadFxRate(account.currency);
+  const { used, floating } = exposure(
+    state,
+    quotes,
+    now,
+    Number(state.account.leverage) || 100,
+    fxRate,
+  );
   if (kind === "withdraw" && amount > Math.min(state.balance, state.balance + floating - used)) {
     throw new Error("You can't withdraw money used as margin or more than your available funds");
   }

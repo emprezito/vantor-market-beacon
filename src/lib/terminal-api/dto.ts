@@ -25,7 +25,7 @@ export function accountDto(account: AccountSummary | TradingAccount, role?: Role
   };
 }
 
-export function positionDto(position: PositionRow, quotes: QuoteMap) {
+export function positionDto(position: PositionRow, quotes: QuoteMap, fxRate = 1) {
   const price = closePriceFromQuote(
     position.side as Side,
     quoteFor(quotes, position.symbol, Date.now()),
@@ -46,7 +46,7 @@ export function positionDto(position: PositionRow, quotes: QuoteMap) {
         Number(position.lots),
         Number(position.open_price),
         price,
-      ),
+      ) * fxRate,
     ),
     openedAt: position.opened_at,
   };
@@ -114,6 +114,7 @@ function history(view: AccountView) {
 
 export function accountViewDto(view: AccountView, role?: Role) {
   const leverage = Number(view.account.leverage) || 100;
+  const fxRate = Number.isFinite(view.fxRate) && view.fxRate > 0 ? view.fxRate : 1;
   let marginUsed = 0;
   let floating = 0;
   for (const position of view.open) {
@@ -121,19 +122,17 @@ export function accountViewDto(view: AccountView, role?: Role) {
       position.side as Side,
       quoteFor(view.quotes, position.symbol, Date.now()),
     );
-    marginUsed += calcMargin(
-      position.symbol,
-      Number(position.lots),
-      Number(position.open_price),
-      leverage,
-    );
-    floating += calcPnl(
-      position.symbol,
-      position.side as Side,
-      Number(position.lots),
-      Number(position.open_price),
-      price,
-    );
+    marginUsed +=
+      calcMargin(position.symbol, Number(position.lots), Number(position.open_price), leverage) *
+      fxRate;
+    floating +=
+      calcPnl(
+        position.symbol,
+        position.side as Side,
+        Number(position.lots),
+        Number(position.open_price),
+        price,
+      ) * fxRate;
   }
   const equity = r2(view.balance + floating);
   return {
@@ -142,7 +141,8 @@ export function accountViewDto(view: AccountView, role?: Role) {
     equity,
     marginUsed: r2(marginUsed),
     freeMargin: r2(equity - marginUsed),
-    openPositions: view.open.map((position) => positionDto(position, view.quotes)),
+    fxRate,
+    openPositions: view.open.map((position) => positionDto(position, view.quotes, fxRate)),
     pendingOrders: view.pending.map(pendingOrderDto),
     recentHistory: history(view),
   };

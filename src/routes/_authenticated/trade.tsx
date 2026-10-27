@@ -114,13 +114,16 @@ function Trade() {
   );
   const currency = acc?.account.currency ?? activeAccount?.currency ?? "USD";
   const leverage = Number(acc?.account.leverage ?? activeAccount?.leverage ?? 100);
+  const fxRate = Number(acc?.fxRate ?? 1);
   const readOnly = activeAccount?.access_role === "investor";
   const floating = positions.reduce((s, p) => {
     const price = closePriceFromQuote(p.side as Side, quoteFor(quotes, p.symbol, now));
-    return s + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), price);
+    return (
+      s + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), price) * fxRate
+    );
   }, 0);
   const used = positions.reduce(
-    (s, p) => s + calcMargin(p.symbol, Number(p.lots), Number(p.open_price), leverage),
+    (s, p) => s + calcMargin(p.symbol, Number(p.lots), Number(p.open_price), leverage) * fxRate,
     0,
   );
   const balance = acc?.balance ?? 0;
@@ -435,7 +438,7 @@ function Trade() {
                 Number(lots) || 0,
                 orderType === "limit" ? Number(limitPrice) || q.mid : q.mid,
                 leverage,
-              ),
+              ) * fxRate,
             )}{" "}
             (1:{leverage})
           </p>
