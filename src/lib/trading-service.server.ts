@@ -15,7 +15,7 @@ import {
   type LimitOrderInput,
   type OrderInput,
 } from "./trading-validation";
-import { quoteFor, type QuoteMap } from "./market-data";
+import { isStaleFeedQuote, quoteFor, type QuoteMap } from "./market-data";
 import { loadFxRate } from "./fx.server";
 
 type AccountRow = Database["public"]["Tables"]["trading_accounts"]["Row"];
@@ -82,6 +82,12 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 async function loadQuoteMap(symbols: string[]): Promise<QuoteMap> {
   const { loadQuotes } = await import("./market-data.server");
   return loadQuotes(symbols);
+}
+
+function assertFreshQuotes(quotes: QuoteMap): void {
+  if (Object.values(quotes).some(isStaleFeedQuote)) {
+    throw new Error("Market data is stale. Please try again shortly.");
+  }
 }
 
 function accountSummary(account: TradingAccount): AccountSummary {
@@ -269,6 +275,7 @@ async function fillDueLimitOrders(
     ...orders.map((order) => order.symbol),
     ...initial.positions.map((position) => position.symbol),
   ]);
+  if (Object.values(quotes).some(isStaleFeedQuote)) return;
   const fxRate = await loadFxRate(account.currency);
 
   for (const order of orders) {
@@ -301,10 +308,9 @@ export async function processAccount(
   const now = Date.now();
   const initialQuotes = await loadQuoteMap(initial.positions.map((position) => position.symbol));
   for (const position of initial.positions) {
-    const price = closePriceFromQuote(
-      position.side as Side,
-      quoteFor(initialQuotes, position.symbol, now),
-    );
+    const quote = quoteFor(initialQuotes, position.symbol, now);
+    if (isStaleFeedQuote(quote)) continue;
+    const price = closePriceFromQuote(position.side as Side, quote);
     const hit = stopHit(
       position.side as Side,
       price,
@@ -398,6 +404,7 @@ export async function openMarketOrder(
     order.symbol,
     ...state.positions.map((position) => position.symbol),
   ]);
+  assertFreshQuotes(quotes);
   const quote = quoteFor(quotes, order.symbol, now);
   const price = openPriceFromQuote(order.side, quote);
   const exitPrice = closePriceFromQuote(order.side, quote);
@@ -435,7 +442,9 @@ export async function placeLimitOrder(
   const order = validateLimitOrder(input);
   const state = await requireTradable(db, account);
   const now = Date.now();
-  const quote = quoteFor(await loadQuoteMap([order.symbol]), order.symbol, now);
+  const quotes = await loadQuoteMap([order.symbol]);
+  assertFreshQuotes(quotes);
+  const quote = quoteFor(quotes, order.symbol, now);
   if (order.side === "buy" && order.limitPrice >= quote.ask) {
     throw new Error("Buy limit price must be below the current ask");
   }
@@ -506,7 +515,9 @@ export async function modifyPosition(
     }
   }
 
-  const quote = quoteFor(await loadQuoteMap([position.symbol]), position.symbol, Date.now());
+  const quotes = await loadQuoteMap([position.symbol]);
+  assertFreshQuotes(quotes);
+  const quote = quoteFor(quotes, position.symbol, Date.now());
   const exitPrice = closePriceFromQuote(position.side as Side, quote);
   if (stopLoss != null && stopHit(position.side as Side, exitPrice, stopLoss, null)) {
     throw new Error("Stop loss is on the wrong side of the price");

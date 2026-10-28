@@ -9,7 +9,8 @@
     "SUPABASE_URL": "https://bfzizzfyxrjtautzvofu.supabase.co",
     "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_nPA9ZdfeACIrVGRAgGvo7Q_SRf4G4ld",
     "SUPABASE_PROJECT_ID": "bfzizzfyxrjtautzvofu",
-    "ALLOW_DEV_ORIGINS": "true"
+    "ALLOW_DEV_ORIGINS": "true",
+    "ALLOW_DEV_FEED": "true"
   },
   "durable_objects": {
     "bindings": [

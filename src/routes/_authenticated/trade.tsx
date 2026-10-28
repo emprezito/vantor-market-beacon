@@ -11,7 +11,13 @@ import {
   DEFAULT_CHART_INDICATORS,
   type ChartIndicators,
 } from "@/lib/chart-indicators";
-import { CHART_INTERVALS, mergeQuotes, quoteFor, type ChartInterval } from "@/lib/market-data";
+import {
+  CHART_INTERVALS,
+  isStaleFeedQuote,
+  mergeQuotes,
+  quoteFor,
+  type ChartInterval,
+} from "@/lib/market-data";
 import { isRealtimeSymbol } from "@/lib/realtime-symbols";
 import { calcMargin, calcPnl, closePriceFromQuote, type Side } from "@/lib/trading";
 import { openTrade, placeLimitOrder } from "@/lib/trading.functions";
@@ -60,7 +66,11 @@ function Trade() {
     isLoading: quotesLoading,
     realtime: realtimeStatus,
   } = useMarketQuotes(feedSymbols);
-  const { candles, source: candleSource } = useMarketCandles(symbol, timeframe, 180);
+  const {
+    candles,
+    source: candleSource,
+    feed: candleFeed,
+  } = useMarketCandles(symbol, timeframe, 180);
   const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const open = useServerFn(openTrade);
   const placeLimit = useServerFn(placeLimitOrder);
@@ -129,22 +139,36 @@ function Trade() {
   const balance = acc?.balance ?? 0;
   const equity = balance + floating;
   const q = quoteFor(quotes, symbol, now);
-  const streaming = isRealtimeSymbol(symbol) && realtimeStatus === "live";
-  const feedLabel = streaming
-    ? "Streaming"
-    : quotesLoading && q.source === "simulated"
-      ? "Connecting"
-      : q.source === "live"
-        ? "Live feed"
-        : q.source === "cached"
-          ? "Cached feed"
-          : "Simulated feed";
+  const feedBlocked = isStaleFeedQuote(q);
+  const streaming = q.feed !== "exness" && isRealtimeSymbol(symbol) && realtimeStatus === "live";
+  const feedLabel =
+    q.feed === "exness"
+      ? q.marketOpen === false
+        ? "Dev feed · closed"
+        : feedBlocked
+          ? "Dev feed stale"
+          : "Dev feed · Exness MT5"
+      : streaming
+        ? "Streaming"
+        : quotesLoading && q.source === "simulated"
+          ? "Connecting"
+          : q.source === "live"
+            ? "Live feed"
+            : q.source === "cached"
+              ? "Cached feed"
+              : "Simulated feed";
   const feedTone =
-    q.source === "live"
-      ? "bg-accent/15 text-accent"
-      : q.source === "cached"
+    q.feed === "exness"
+      ? q.marketOpen === false
         ? "bg-muted text-muted-foreground"
-        : "bg-amber-500/15 text-amber-700";
+        : feedBlocked
+          ? "bg-amber-500/15 text-amber-700"
+          : "bg-accent/15 text-accent"
+      : q.source === "live"
+        ? "bg-accent/15 text-accent"
+        : q.source === "cached"
+          ? "bg-muted text-muted-foreground"
+          : "bg-amber-500/15 text-amber-700";
   const money = (n: number) => formatMoney(n, currency);
   const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
   const limitValid =
@@ -292,9 +316,11 @@ function Trade() {
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${feedTone}`}
                   title={
-                    q.source === "simulated"
-                      ? "Live feed unavailable. Add TWELVE_DATA_API_KEY to the Worker, or check the provider plan and symbol coverage."
-                      : undefined
+                    q.feed === "exness"
+                      ? "Exness MT5 dev feed. New orders pause when the feed is stale or the market is closed."
+                      : q.source === "simulated"
+                        ? "Live feed unavailable. Add TWELVE_DATA_API_KEY to the Worker, or check the provider plan and symbol coverage."
+                        : undefined
                   }
                 >
                   {feedLabel}
@@ -326,7 +352,7 @@ function Trade() {
               ))}
             </div>
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Candles: {candleSource ?? "loading"}
+              Candles: {candleFeed === "exness" ? "Exness MT5" : (candleSource ?? "loading")}
             </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1">
@@ -442,10 +468,16 @@ function Trade() {
             )}{" "}
             (1:{leverage})
           </p>
+          {feedBlocked && (
+            <p className="text-xs text-amber-700">
+              Exness feed is stale or the market is closed. New orders are paused; closing positions
+              remains available.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <Button
               variant="destructive"
-              disabled={place.isPending || readOnly || !limitValid}
+              disabled={place.isPending || readOnly || !limitValid || feedBlocked}
               onClick={() => place.mutate("sell")}
               className="h-16 flex-col py-3 font-semibold"
             >
@@ -455,7 +487,7 @@ function Trade() {
               </div>
             </Button>
             <Button
-              disabled={place.isPending || readOnly || !limitValid}
+              disabled={place.isPending || readOnly || !limitValid || feedBlocked}
               onClick={() => place.mutate("buy")}
               className="h-16 flex-col bg-accent py-3 font-semibold text-accent-foreground hover:bg-accent/90"
             >

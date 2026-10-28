@@ -12,6 +12,7 @@ import {
   type MarketQuote,
   type QuoteMap,
 } from "./market-data";
+import { loadFeedCandles, loadFeedQuotes } from "./market-feed.server";
 
 const API_URL = "https://api.twelvedata.com";
 const DEFAULT_QUOTE_TTL_MS = 60_000;
@@ -233,8 +234,13 @@ async function loadQuote(symbol: string): Promise<MarketQuote> {
 
 export async function loadQuotes(symbols: string[]): Promise<QuoteMap> {
   const unique = Array.from(new Set(symbols)).filter(isInstrument);
-  const quotes = await Promise.all(unique.map(loadQuote));
-  return Object.fromEntries(quotes.map((quote) => [quote.symbol, quote]));
+  const feed: QuoteMap = await loadFeedQuotes(unique).catch(() => ({}));
+  const missing = unique.filter((symbol) => !feed[symbol]);
+  const quotes = await Promise.all(missing.map(loadQuote));
+  return {
+    ...feed,
+    ...Object.fromEntries(quotes.map((quote) => [quote.symbol, quote])),
+  };
 }
 
 function fxRateTtlMs(): number {
@@ -325,7 +331,7 @@ async function fetchLiveCandles(
     .sort((a, b) => a.time - b.time);
   if (candles.length === 0) throw new Error(`No candles returned for ${symbol}`);
 
-  return { symbol, interval, candles, source: "live", fetchedAt: Date.now() };
+  return { symbol, interval, candles, source: "live", feed: "twelve", fetchedAt: Date.now() };
 }
 
 export async function loadCandles(
@@ -335,6 +341,8 @@ export async function loadCandles(
 ): Promise<MarketCandles> {
   const safeInterval = isChartInterval(interval) ? interval : "1min";
   const safePoints = Math.min(500, Math.max(20, Math.round(points)));
+  const feed = await loadFeedCandles(symbol, safeInterval, safePoints).catch(() => null);
+  if (feed) return feed;
   if (!PROVIDER_SYMBOLS[symbol]) {
     return {
       symbol,

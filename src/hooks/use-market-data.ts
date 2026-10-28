@@ -9,7 +9,6 @@ export function useMarketQuotes(symbols: string[], refetchInterval = 5_000) {
   const quotesFn = useServerFn(getMarketQuotes);
   const unique = useMemo(() => Array.from(new Set(symbols)).sort(), [symbols]);
   const key = unique.join(",");
-  const realtime = useRealtimeQuotes(unique);
 
   const query = useQuery({
     queryKey: ["market-quotes", key],
@@ -21,10 +20,20 @@ export function useMarketQuotes(symbols: string[], refetchInterval = 5_000) {
     placeholderData: (previous) => previous,
   });
 
-  const quotes = useMemo(
-    () => mergeQuotes(query.data?.quotes, realtime.quotes),
-    [query.data?.quotes, realtime.quotes],
+  const realtimeSymbols = useMemo(
+    () => unique.filter((symbol) => query.data?.quotes[symbol]?.feed !== "exness"),
+    [unique, query.data?.quotes],
   );
+  const realtime = useRealtimeQuotes(realtimeSymbols);
+
+  const quotes = useMemo(() => {
+    const live = Object.fromEntries(
+      Object.entries(realtime.quotes).filter(
+        ([symbol]) => query.data?.quotes[symbol]?.feed !== "exness",
+      ),
+    );
+    return mergeQuotes(query.data?.quotes, live);
+  }, [query.data?.quotes, realtime.quotes]);
 
   return {
     quotes,
@@ -35,7 +44,12 @@ export function useMarketQuotes(symbols: string[], refetchInterval = 5_000) {
   };
 }
 
-export function useMarketCandles(symbol: string, interval: ChartInterval, points = 180, refetchInterval = 60_000) {
+export function useMarketCandles(
+  symbol: string,
+  interval: ChartInterval,
+  points = 180,
+  refetchInterval = 60_000,
+) {
   const candlesFn = useServerFn(getMarketCandles);
   const query = useQuery({
     queryKey: ["market-candles", symbol, interval, points],
@@ -48,6 +62,7 @@ export function useMarketCandles(symbol: string, interval: ChartInterval, points
   return {
     candles: query.data?.candles ?? [],
     source: query.data?.source,
+    feed: query.data?.feed,
     fetchedAt: query.data?.fetchedAt ?? 0,
     isLoading: query.isPending,
     error: query.error,

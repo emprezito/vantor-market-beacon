@@ -6,6 +6,7 @@ import {
 } from "@/lib/account-auth.server";
 import { TRADING_SERVER_SELECT } from "@/lib/account-options";
 import { loadCandles, loadQuotes } from "@/lib/market-data.server";
+import { MARKET_FEED_INSTANCE } from "@/lib/market-feed";
 import { isChartInterval, isInstrument } from "@/lib/market-data";
 import {
   cancelPendingOrder,
@@ -267,7 +268,12 @@ async function quotes(request: Request, env: TerminalEnv, cors: CorsContext) {
         bid: quote.bid,
         ask: quote.ask,
         ts: quote.ts,
-        stale: quote.source !== "live",
+        stale: quote.source !== "live" || quote.marketOpen === false,
+        ...(quote.feed == null ? {} : { feed: quote.feed }),
+        ...(quote.marketOpen == null ? {} : { marketOpen: quote.marketOpen }),
+        ...(quote.change == null ? {} : { change: quote.change }),
+        ...(quote.high == null ? {} : { high: quote.high }),
+        ...(quote.low == null ? {} : { low: quote.low }),
       };
     }),
   });
@@ -290,6 +296,7 @@ async function candles(request: Request, env: TerminalEnv, cors: CorsContext) {
     candles: result.candles,
     source: result.source,
     stale: result.source !== "live",
+    ...(result.feed == null ? {} : { feed: result.feed }),
     fetchedAt: result.fetchedAt,
   });
 }
@@ -459,7 +466,7 @@ async function stream(request: Request, env: TerminalEnv, cors: CorsContext, ins
 export async function handleTerminalApi(
   request: Request,
   env: TerminalEnv,
-  instance = "markets-v2",
+  instance = MARKET_FEED_INSTANCE,
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) return null;

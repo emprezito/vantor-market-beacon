@@ -1,6 +1,7 @@
 import { INSTRUMENTS, getInstrument, midPrice, quote } from "./market";
 
 export type FeedSource = "live" | "cached" | "simulated";
+export type MarketFeed = "twelve" | "exness";
 
 export type MarketQuote = {
   symbol: string;
@@ -9,6 +10,11 @@ export type MarketQuote = {
   mid: number;
   ts: number;
   source: FeedSource;
+  feed?: MarketFeed;
+  change?: number;
+  high?: number;
+  low?: number;
+  marketOpen?: boolean;
 };
 
 export type QuoteMap = Record<string, MarketQuote>;
@@ -30,6 +36,7 @@ export type MarketCandles = {
   interval: ChartInterval;
   candles: MarketCandle[];
   source: FeedSource;
+  feed?: MarketFeed;
   fetchedAt: number;
 };
 
@@ -94,6 +101,7 @@ export function withSpread(
     mid,
     ts,
     source,
+    feed: "twelve",
   };
 }
 
@@ -106,6 +114,10 @@ export function quoteFor(quotes: QuoteMap | undefined, symbol: string, ts: numbe
   const provided = quotes?.[symbol];
   if (provided && provided.source !== "simulated") return provided;
   return syntheticQuote(symbol, ts);
+}
+
+export function isStaleFeedQuote(quote: MarketQuote): boolean {
+  return quote.feed === "exness" && (quote.source !== "live" || quote.marketOpen === false);
 }
 
 export function syntheticCandles(

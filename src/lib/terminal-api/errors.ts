@@ -21,5 +21,8 @@ export function mapError(error: unknown): ApiError {
   if (message === "Trading account not found") {
     return new ApiError(404, "account_not_found", message);
   }
+  if (message.startsWith("Market data is stale")) {
+    return new ApiError(409, "stale_market_data", message);
+  }
   return new ApiError(400, "invalid_request", message);
 }

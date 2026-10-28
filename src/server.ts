@@ -2,6 +2,8 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { handleDevFeedRequest } from "./lib/dev-feed.server";
+import { MARKET_FEED_INSTANCE } from "./lib/market-feed";
 import { verifyRealtimeTicket } from "./lib/realtime-ticket";
 import { handleTerminalApi } from "./lib/terminal-api/router";
 
@@ -26,6 +28,11 @@ type WorkerEnv = {
   ALLOW_DEV_ORIGINS?: string;
   SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  ALLOW_DEV_FEED?: string;
+  DEV_FEED_SECRET?: string;
+  DEV_FEED_ALLOWED_IPS?: string;
+  DEV_FEED_STALE_MS?: string;
+  DEV_FEED_RETENTION_BARS?: string;
 };
 
 type RealtimeGlobals = typeof globalThis & {
@@ -33,7 +40,6 @@ type RealtimeGlobals = typeof globalThis & {
 };
 
 const REALTIME_PATH = "/api/realtime/markets";
-const REALTIME_INSTANCE = "markets-v2";
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
@@ -71,7 +77,7 @@ async function handleRealtimeRequest(request: Request, env: WorkerEnv): Promise<
   const namespace = env.MARKET_STREAM;
   if (!namespace) return new Response("Realtime streaming is not available", { status: 503 });
 
-  const stub = namespace.get(namespace.idFromName(REALTIME_INSTANCE));
+  const stub = namespace.get(namespace.idFromName(MARKET_FEED_INSTANCE));
   return stub.fetch(request);
 }
 
@@ -105,7 +111,10 @@ export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const runtimeEnv = (globalThis as RealtimeGlobals).__env__ ?? ((env ?? {}) as WorkerEnv);
-      const terminal = await handleTerminalApi(request, runtimeEnv, REALTIME_INSTANCE);
+      const feed = await handleDevFeedRequest(request, runtimeEnv);
+      if (feed) return feed;
+
+      const terminal = await handleTerminalApi(request, runtimeEnv, MARKET_FEED_INSTANCE);
       if (terminal) return terminal;
 
       const realtime = await handleRealtimeRequest(request, runtimeEnv);

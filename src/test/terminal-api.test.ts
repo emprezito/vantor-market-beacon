@@ -418,6 +418,42 @@ describe("terminal API", () => {
     });
   });
 
+  it("returns Exness quote metadata and marks a closed market stale", async () => {
+    vi.mocked(loadQuotes).mockResolvedValueOnce({
+      XAUUSD: {
+        symbol: "XAUUSD",
+        bid: 2_400,
+        ask: 2_400.4,
+        mid: 2_400.2,
+        ts: 123,
+        source: "live",
+        feed: "exness",
+        marketOpen: false,
+        change: 12.5,
+        high: 2_410,
+        low: 2_390,
+      },
+    });
+    const response = await handleTerminalApi(request("/quotes?symbols=XAUUSD"), env);
+    expect(response?.status).toBe(200);
+    expect(await body(response)).toEqual({
+      quotes: [
+        {
+          symbol: "XAUUSD",
+          bid: 2_400,
+          ask: 2_400.4,
+          ts: 123,
+          stale: true,
+          feed: "exness",
+          marketOpen: false,
+          change: 12.5,
+          high: 2_410,
+          low: 2_390,
+        },
+      ],
+    });
+  });
+
   it("returns authenticated candles with a source and stale flag", async () => {
     const response = await handleTerminalApi(request("/candles?symbol=EURUSD&interval=1h"), env);
     expect(response?.status).toBe(200);
@@ -428,6 +464,28 @@ describe("terminal API", () => {
       candles: [],
       source: "simulated",
       stale: true,
+      fetchedAt: 123,
+    });
+  });
+
+  it("returns the feed tag for Exness candles", async () => {
+    vi.mocked(loadCandles).mockResolvedValueOnce({
+      symbol: "GER40",
+      interval: "1h",
+      candles: [{ time: 1_700_000_000, open: 18_000, high: 18_100, low: 17_950, close: 18_050 }],
+      source: "live",
+      feed: "exness",
+      fetchedAt: 123,
+    });
+    const response = await handleTerminalApi(request("/candles?symbol=GER40&interval=1h"), env);
+    expect(response?.status).toBe(200);
+    expect(await body(response)).toEqual({
+      symbol: "GER40",
+      interval: "1h",
+      candles: [{ time: 1_700_000_000, open: 18_000, high: 18_100, low: 17_950, close: 18_050 }],
+      source: "live",
+      stale: false,
+      feed: "exness",
       fetchedAt: 123,
     });
   });
@@ -531,6 +589,24 @@ describe("terminal API", () => {
       account,
       expect.objectContaining({ symbol: "EURUSD", lots: 0.01 }),
     );
+  });
+
+  it("returns 409 when the feed is stale", async () => {
+    vi.mocked(openMarketOrder).mockRejectedValueOnce(
+      new Error("Market data is stale. Please try again shortly."),
+    );
+    const response = await handleTerminalApi(
+      jsonRequest("/orders", "POST", {
+        symbol: "EURUSD",
+        side: "buy",
+        lots: 0.01,
+        stopLoss: null,
+        takeProfit: null,
+      }),
+      env,
+    );
+    expect(response?.status).toBe(409);
+    expect((await body(response))["error"]).toBe("stale_market_data");
   });
 
   it("places a limit order", async () => {
