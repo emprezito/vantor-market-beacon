@@ -1,6 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { TRADING_SERVER_SELECT, normalizeServer, type TradingServer } from "@/lib/account-options";
+import {
+  TRADING_SERVER_SELECT,
+  normalizeServer,
+  validateAccountPasswords,
+  type AccountPasswords,
+  type TradingServer,
+} from "@/lib/account-options";
 import { isPartnerRole } from "@/lib/partner";
 import { hashPassword } from "@/lib/password.server";
 
@@ -94,15 +100,18 @@ export async function loadServerForUser(
   return server;
 }
 
-export async function insertAccount(admin: SupabaseClient<Database>, fields: AccountFields) {
+export async function insertAccount(
+  admin: SupabaseClient<Database>,
+  fields: AccountFields,
+  passwords: AccountPasswords,
+) {
+  const { traderPassword, investorPassword } = validateAccountPasswords(passwords);
+  const [traderHash, investorHash] = await Promise.all([
+    hashPassword(traderPassword),
+    hashPassword(investorPassword),
+  ]);
   for (let attempt = 0; attempt < 5; attempt++) {
     const login = genLogin();
-    const traderPassword = genPassword(12);
-    const investorPassword = genPassword(12);
-    const [traderHash, investorHash] = await Promise.all([
-      hashPassword(traderPassword),
-      hashPassword(investorPassword),
-    ]);
     const { data, error } = await admin
       .from("trading_accounts")
       .insert({
@@ -117,7 +126,7 @@ export async function insertAccount(admin: SupabaseClient<Database>, fields: Acc
       })
       .select("id, login, nickname, label, server, server_id, balance, currency, leverage")
       .single();
-    if (!error && data) return { ...data, traderPassword, investorPassword };
+    if (!error && data) return data;
     if (error && error.code !== "23505") throw new Error(error.message);
   }
   throw new Error("Could not allocate an account number. Please try again.");
@@ -127,8 +136,9 @@ export async function insertAccountWithInitialTransaction(
   admin: SupabaseClient<Database>,
   fields: AccountFields,
   actorUserId: string,
+  passwords: AccountPasswords,
 ) {
-  const account = await insertAccount(admin, fields);
+  const account = await insertAccount(admin, fields, passwords);
   const { error } = await admin.from("transactions").insert({
     user_id: actorUserId,
     account_id: account.id,

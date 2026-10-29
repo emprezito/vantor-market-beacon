@@ -7,6 +7,8 @@ import { listMyAccounts, listTradingServers, openDemoAccount } from "@/lib/accou
 import { moveFunds } from "@/lib/trading.functions";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import {
+  ACCOUNT_PASSWORD_MAX,
+  ACCOUNT_PASSWORD_MIN,
   ACCOUNT_TYPES,
   CURRENCIES,
   DEFAULT_ACCOUNT_TYPE,
@@ -20,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/password-input";
 
 export const Route = createFileRoute("/_authenticated/accounts")({
   component: AccountsPage,
@@ -37,8 +40,6 @@ type CreatedAccount = {
   login: number;
   nickname: string;
   server: string;
-  traderPassword: string;
-  investorPassword: string;
 };
 
 function AccountsPage() {
@@ -66,6 +67,8 @@ function AccountsPage() {
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
   const [leverage, setLeverage] = useState<number>(DEFAULT_LEVERAGE);
   const [size, setSize] = useState(String(DEFAULT_BALANCE));
+  const [traderPassword, setTraderPassword] = useState("");
+  const [investorPassword, setInvestorPassword] = useState("");
   const [createdAccount, setCreatedAccount] = useState<CreatedAccount | null>(null);
 
   const servers = serversQuery.data ?? [];
@@ -104,6 +107,8 @@ function AccountsPage() {
           leverage,
           balance: Number(size),
           serverId: selectedServer?.id ?? "",
+          traderPassword,
+          investorPassword,
         },
       }),
     onSuccess: (acc) => {
@@ -111,12 +116,12 @@ function AccountsPage() {
       setActiveAccount(acc.id);
       setOpenPanel(false);
       setNickname("");
+      setTraderPassword("");
+      setInvestorPassword("");
       setCreatedAccount({
         login: acc.login,
         nickname: acc.nickname,
         server: acc.server,
-        traderPassword: acc.traderPassword,
-        investorPassword: acc.investorPassword,
       });
       toast.success(`Account #${acc.login} was created`);
     },
@@ -288,14 +293,45 @@ function AccountsPage() {
                   {currency}
                 </p>
               </div>
+              <div>
+                <Label htmlFor="atraderpass">Trading password</Label>
+                <PasswordInput
+                  id="atraderpass"
+                  value={traderPassword}
+                  onChange={(e) => setTraderPassword(e.target.value)}
+                  autoComplete="new-password"
+                  minLength={ACCOUNT_PASSWORD_MIN}
+                  maxLength={ACCOUNT_PASSWORD_MAX}
+                  placeholder="Full trading access"
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="ainvestorpass">Investor password</Label>
+                <PasswordInput
+                  id="ainvestorpass"
+                  value={investorPassword}
+                  onChange={(e) => setInvestorPassword(e.target.value)}
+                  autoComplete="new-password"
+                  minLength={ACCOUNT_PASSWORD_MIN}
+                  maxLength={ACCOUNT_PASSWORD_MAX}
+                  placeholder="Read-only access"
+                  required
+                />
+              </div>
               <div className="sm:col-span-2">
-                <Button type="submit" disabled={openMut.isPending || !selectedServer}>
+                <p className="text-[11px] text-muted-foreground">
+                  Use {ACCOUNT_PASSWORD_MIN}–{ACCOUNT_PASSWORD_MAX} characters with at least one
+                  letter and one number. The investor password must be different from the trading
+                  password.
+                </p>
+                <Button
+                  type="submit"
+                  className="mt-3"
+                  disabled={openMut.isPending || !selectedServer}
+                >
                   {openMut.isPending ? "Creating…" : "Create account"}
                 </Button>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Trader and investor passwords are generated automatically and shown once after
-                  creation.
-                </p>
               </div>
             </form>
           </div>
@@ -307,14 +343,12 @@ function AccountsPage() {
           <p className="font-semibold">
             Account #{createdAccount.login} created on {createdAccount.server}
           </p>
-          <p className="mt-1">
-            Trader password: <span className="font-mono">{createdAccount.traderPassword}</span>
-          </p>
-          <p>
-            Investor password: <span className="font-mono">{createdAccount.investorPassword}</span>
+          <p className="mt-1 text-sm">
+            Use the trading password you chose to trade. The investor password gives read-only
+            access.
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            These passwords are shown once. Copy them now.
+            Passwords are hashed and cannot be shown again.
           </p>
           <Button
             type="button"

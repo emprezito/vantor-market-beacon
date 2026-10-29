@@ -12,6 +12,8 @@ import {
 } from "@/lib/partner.functions";
 import { openDemoAccount } from "@/lib/accounts.functions";
 import {
+  ACCOUNT_PASSWORD_MAX,
+  ACCOUNT_PASSWORD_MIN,
   ACCOUNT_TYPES,
   CURRENCIES,
   DEFAULT_ACCOUNT_TYPE,
@@ -26,6 +28,7 @@ import { canManageServer } from "@/lib/partner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/password-input";
 
 export const Route = createFileRoute("/_authenticated/partner/accounts")({
   head: () => ({
@@ -39,14 +42,21 @@ export const Route = createFileRoute("/_authenticated/partner/accounts")({
 
 const inputCls = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
-type CreatedAccount = {
-  mode: "created" | "reset";
-  login: number;
-  nickname: string;
-  server: string;
-  traderPassword: string;
-  investorPassword: string;
-};
+type CreatedAccount =
+  | {
+      mode: "created";
+      login: number;
+      nickname: string;
+      server: string;
+    }
+  | {
+      mode: "reset";
+      login: number;
+      nickname: string;
+      server: string;
+      traderPassword: string;
+      investorPassword: string;
+    };
 
 type AccountDraft = {
   nickname: string;
@@ -54,6 +64,8 @@ type AccountDraft = {
   currency: string;
   leverage: number;
   balance: string;
+  traderPassword: string;
+  investorPassword: string;
 };
 
 function PartnerAccountsPage() {
@@ -80,6 +92,8 @@ function PartnerAccountsPage() {
     currency: DEFAULT_CURRENCY,
     leverage: DEFAULT_LEVERAGE,
     balance: String(DEFAULT_BALANCE),
+    traderPassword: "",
+    investorPassword: "",
   });
 
   const accountsQuery = useQuery({
@@ -115,6 +129,8 @@ function PartnerAccountsPage() {
       currency: defaults.currency,
       leverage: defaults.leverage,
       balance: String(defaults.balance),
+      traderPassword: "",
+      investorPassword: "",
     });
     setCreatedAccount(null);
     setExpandedAccountId(null);
@@ -130,6 +146,8 @@ function PartnerAccountsPage() {
           currency: accountForm.currency,
           leverage: accountForm.leverage,
           balance: Number(accountForm.balance),
+          traderPassword: accountForm.traderPassword,
+          investorPassword: accountForm.investorPassword,
         },
       }),
     onSuccess: (account) => {
@@ -141,10 +159,13 @@ function PartnerAccountsPage() {
         login: account.login,
         nickname: account.nickname,
         server: account.server,
-        traderPassword: account.traderPassword,
-        investorPassword: account.investorPassword,
       });
-      setAccountForm((current) => ({ ...current, nickname: "" }));
+      setAccountForm((current) => ({
+        ...current,
+        nickname: "",
+        traderPassword: "",
+        investorPassword: "",
+      }));
       toast.success(`Account #${account.login} was created`);
     },
     onError: (e) => toast.error(e.message),
@@ -351,14 +372,51 @@ function PartnerAccountsPage() {
                 {Number(selected.max_balance).toLocaleString("en-US")} {accountForm.currency}
               </p>
             </div>
+            <div>
+              <Label htmlFor="account-trader-password">Trading password</Label>
+              <PasswordInput
+                id="account-trader-password"
+                value={accountForm.traderPassword}
+                onChange={(event) =>
+                  setAccountForm((current) => ({
+                    ...current,
+                    traderPassword: event.target.value,
+                  }))
+                }
+                autoComplete="new-password"
+                minLength={ACCOUNT_PASSWORD_MIN}
+                maxLength={ACCOUNT_PASSWORD_MAX}
+                placeholder="Full trading access"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="account-investor-password">Investor password</Label>
+              <PasswordInput
+                id="account-investor-password"
+                value={accountForm.investorPassword}
+                onChange={(event) =>
+                  setAccountForm((current) => ({
+                    ...current,
+                    investorPassword: event.target.value,
+                  }))
+                }
+                autoComplete="new-password"
+                minLength={ACCOUNT_PASSWORD_MIN}
+                maxLength={ACCOUNT_PASSWORD_MAX}
+                placeholder="Read-only access"
+                required
+              />
+            </div>
             <div className="sm:col-span-2">
-              <Button type="submit" disabled={createAccountMut.isPending}>
+              <p className="text-[11px] text-muted-foreground">
+                Use {ACCOUNT_PASSWORD_MIN}–{ACCOUNT_PASSWORD_MAX} characters with at least one
+                letter and one number. The investor password must be different from the trading
+                password.
+              </p>
+              <Button type="submit" className="mt-3" disabled={createAccountMut.isPending}>
                 {createAccountMut.isPending ? "Creating…" : "Create account"}
               </Button>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Trader and investor passwords are generated automatically and shown once after
-                creation.
-              </p>
             </div>
           </form>
         </section>
@@ -371,15 +429,24 @@ function PartnerAccountsPage() {
               ? `Account #${createdAccount.login} created on ${createdAccount.server}`
               : `Passwords reset for #${createdAccount.login}${createdAccount.server ? ` on ${createdAccount.server}` : ""}`}
           </p>
-          <p className="mt-1">
-            Trader password: <span className="font-mono">{createdAccount.traderPassword}</span>
-          </p>
-          <p>
-            Investor password: <span className="font-mono">{createdAccount.investorPassword}</span>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            These passwords are shown once. Copy them now.
-          </p>
+          {createdAccount.mode === "created" ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              The passwords you chose are now active. They are hashed and cannot be shown again.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1">
+                Trader password: <span className="font-mono">{createdAccount.traderPassword}</span>
+              </p>
+              <p>
+                Investor password:{" "}
+                <span className="font-mono">{createdAccount.investorPassword}</span>
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                These passwords are shown once. Copy them now.
+              </p>
+            </>
+          )}
           <Button
             type="button"
             size="sm"

@@ -48,7 +48,10 @@ export const openDemoAccount = createServerFn({ method: "POST" })
     const { loadServerForUser, insertAccountWithInitialTransaction } =
       await import("@/lib/server-accounts.server");
     const server = await loadServerForUser(supabaseAdmin, data.serverId, context.userId);
-    const account = validateNewAccountForServer(data, server);
+    const { traderPassword, investorPassword, ...account } = validateNewAccountForServer(
+      data,
+      server,
+    );
     return insertAccountWithInitialTransaction(
       supabaseAdmin,
       {
@@ -63,5 +66,6 @@ export const openDemoAccount = createServerFn({ method: "POST" })
         server_id: server.id,
       },
       context.userId,
+      { traderPassword, investorPassword },
     );
   });
