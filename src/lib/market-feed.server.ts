@@ -103,26 +103,40 @@ export async function ingestFeedPayload(
   if (!response.ok) throw new Error(`Feed storage rejected the batch (${response.status})`);
 }
 
-export async function loadFeedQuotes(
+export type FeedQuotesResult = {
+  quotes: QuoteMap;
+  enabled: boolean;
+  available: boolean;
+  stale: boolean;
+};
+
+export async function loadFeedQuotesResult(
   symbols: string[],
   env: FeedRuntimeEnv | undefined = feedEnv(),
-): Promise<QuoteMap> {
-  if (!feedEnabled(env)) return {};
+): Promise<FeedQuotesResult> {
+  if (!feedEnabled(env)) {
+    return { quotes: {}, enabled: false, available: false, stale: true };
+  }
   const stub = feedStub(env);
-  if (!stub) return {};
+  if (!stub) return { quotes: {}, enabled: true, available: false, stale: true };
 
   const unique = Array.from(new Set(symbols)).filter(isInstrument);
-  if (unique.length === 0) return {};
+  if (unique.length === 0) {
+    return { quotes: {}, enabled: true, available: true, stale: false };
+  }
 
   const url = new URL("/internal/quotes", FEED_INTERNAL_BASE_URL);
   url.searchParams.set("symbols", unique.join(","));
   const response = await stub.fetch(internalRequest(url.pathname + url.search));
-  if (!response.ok) return {};
+  if (!response.ok) return { quotes: {}, enabled: true, available: false, stale: true };
 
   const payload = (await response.json().catch(() => null)) as unknown;
-  if (!isRecord(payload) || !Array.isArray(payload["quotes"])) return {};
+  if (!isRecord(payload) || !Array.isArray(payload["quotes"])) {
+    return { quotes: {}, enabled: true, available: false, stale: true };
+  }
 
   const result: QuoteMap = {};
+  let anyStale = false;
   for (const record of payload["quotes"]) {
     if (!isRecord(record) || typeof record["symbol"] !== "string") continue;
     if (!isInstrument(record["symbol"])) continue;
@@ -136,6 +150,7 @@ export async function loadFeedQuotes(
     }
     const stale =
       payload["stale"] === true || record["stale"] === true || record["marketOpen"] === false;
+    anyStale ||= stale;
     const quote: MarketQuote = {
       symbol: record["symbol"],
       bid: record["bid"],
@@ -151,7 +166,19 @@ export async function loadFeedQuotes(
     };
     result[quote.symbol] = quote;
   }
-  return result;
+  return {
+    quotes: result,
+    enabled: true,
+    available: unique.every((symbol) => result[symbol] != null),
+    stale: payload["stale"] === true || anyStale,
+  };
+}
+
+export async function loadFeedQuotes(
+  symbols: string[],
+  env: FeedRuntimeEnv | undefined = feedEnv(),
+): Promise<QuoteMap> {
+  return (await loadFeedQuotesResult(symbols, env)).quotes;
 }
 
 export async function loadFeedCandles(

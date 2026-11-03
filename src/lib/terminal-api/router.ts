@@ -270,6 +270,7 @@ async function quotes(request: Request, env: TerminalEnv, cors: CorsContext) {
         ts: quote.ts,
         stale: quote.source !== "live" || quote.marketOpen === false,
         ...(quote.feed == null ? {} : { feed: quote.feed }),
+        ...(quote.feedFallback ? { feedFallback: true } : {}),
         ...(quote.marketOpen == null ? {} : { marketOpen: quote.marketOpen }),
         ...(quote.change == null ? {} : { change: quote.change }),
         ...(quote.high == null ? {} : { high: quote.high }),

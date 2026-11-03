@@ -11,6 +11,7 @@ export type MarketQuote = {
   ts: number;
   source: FeedSource;
   feed?: MarketFeed;
+  feedFallback?: boolean;
   change?: number;
   high?: number;
   low?: number;

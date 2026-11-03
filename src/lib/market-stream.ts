@@ -1,6 +1,9 @@
 import {
+  BAR_PRUNE_MS,
   FEED_INTERNAL_HEADER,
   FEED_INTERNAL_VALUE,
+  MAX_MISSING_HISTORY_BARS,
+  QUOTE_SNAPSHOT_MS,
   computeFeedQuoteStats,
   feedIsStale,
   feedRetentionBars,
@@ -11,13 +14,21 @@ import {
   type FeedCandleInput,
   type FeedCandlesResponse,
   type FeedDailyBar,
+  type FeedMissingSeries,
   type FeedPayload,
   type FeedQuoteInput,
   type FeedQuoteRecord,
   type FeedQuotesResponse,
+  type FeedSeriesStatus,
   type FeedStatus,
 } from "./market-feed";
-import { isChartInterval, type ChartInterval, type MarketCandle } from "./market-data";
+import {
+  CHART_INTERVALS,
+  intervalMs,
+  isChartInterval,
+  type ChartInterval,
+  type MarketCandle,
+} from "./market-data";
 import { REALTIME_SYMBOLS, type RealtimeSymbol } from "./realtime-symbols";
 
 const UPSTREAM_URL = "wss://ws.twelvedata.com/v1/quotes/price";
@@ -43,6 +54,7 @@ type StreamEnv = {
 
 type SqlCursor = {
   toArray: () => Record<string, unknown>[];
+  rowsWritten?: number;
 };
 
 type SqlStorage = {
@@ -82,6 +94,30 @@ type PriceTick = {
   ts: number;
 };
 
+type MemoryQuote = {
+  symbol: string;
+  bid: number;
+  ask: number;
+  mid: number;
+  ts: number;
+  marketOpen: boolean;
+  providerSymbol: string | null;
+  receivedAt: number;
+};
+
+type QuoteSnapshot = {
+  savedAt: number;
+  lastIngestAt: number | null;
+  lastSentAt: number | null;
+  serverOffsetMs: number | null;
+  feedId: string | null;
+  symbols: string[];
+  quotes: MemoryQuote[];
+  seriesLatest?: [string, number][];
+  rowsWrittenDay: string;
+  rowsWrittenToday: number;
+};
+
 function createSocketPair(): SocketPair {
   const Pair = (globalThis as unknown as { WebSocketPair: SocketPairConstructor }).WebSocketPair;
   return new Pair();
@@ -96,15 +132,31 @@ export class MarketStream {
   private readonly env: StreamEnv;
   private readonly clients = new Set<WebSocket>();
   private readonly latest = new Map<RealtimeSymbol, PriceTick>();
+  private readonly quotes = new Map<string, MemoryQuote>();
+  private readonly feedSymbols = new Set<string>();
+  private readonly liveBars = new Map<string, MarketCandle>();
+  private readonly seriesLatest = new Map<string, number>();
+  private seriesLatestLoaded = false;
   private upstream: WebSocket | null = null;
   private keyIndex = 0;
   private attempts = 0;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
+  private feedId: string | null = null;
+  private lastIngestAt: number | null = null;
+  private lastSentAt: number | null = null;
+  private serverOffsetMs: number | null = null;
+  private quoteSnapshotAt = 0;
+  private lastPruneAt = 0;
+  private rowsWrittenDay = utcDayKey(Date.now());
+  private rowsWrittenToday = 0;
 
   constructor(state: StreamState, env: StreamEnv) {
     this.state = state;
     this.env = env;
     this.initSchema();
+    this.restoreSnapshot();
+    this.lastPruneAt = this.metaTimestamp("last_prune_at") ?? Date.now();
+    if (this.quoteSnapshotAt === 0) this.quoteSnapshotAt = Date.now();
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -134,6 +186,18 @@ export class MarketStream {
     });
 
     for (const tick of this.latest.values()) this.sendTo(server, { type: "price", ...tick });
+    for (const quote of this.quotes.values()) {
+      this.sendTo(server, {
+        type: "price",
+        symbol: quote.symbol,
+        price: quote.mid,
+        bid: quote.bid,
+        ask: quote.ask,
+        ts: quote.ts,
+        feed: "exness",
+        marketOpen: quote.marketOpen,
+      });
+    }
     await this.ensureUpstream();
 
     return new Response(null, {
@@ -190,19 +254,92 @@ export class MarketStream {
     return typeof value === "string" ? value : null;
   }
 
-  private metaNumber(key: string): number | null {
-    const raw = this.meta(key);
-    if (raw == null) return null;
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : null;
-  }
-
   private setMeta(key: string, value: string): void {
     this.sql().exec(
       "INSERT INTO feed_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       key,
       value,
     );
+  }
+
+  private metaTimestamp(key: string): number | null {
+    const raw = this.meta(key);
+    if (raw == null) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  private restoreSnapshot(): void {
+    const raw = this.meta("quote_snapshot");
+    if (!raw) return;
+    let snapshot: QuoteSnapshot;
+    try {
+      snapshot = JSON.parse(raw) as QuoteSnapshot;
+    } catch {
+      return;
+    }
+    if (!snapshot || !Array.isArray(snapshot.quotes)) return;
+    for (const quote of snapshot.quotes) {
+      if (!validMemoryQuote(quote)) continue;
+      this.quotes.set(quote.symbol, quote);
+      this.feedSymbols.add(quote.symbol);
+    }
+    for (const symbol of snapshot.symbols ?? []) {
+      if (typeof symbol === "string") this.feedSymbols.add(symbol);
+    }
+    if (Array.isArray(snapshot.seriesLatest) && snapshot.seriesLatest.length > 0) {
+      for (const entry of snapshot.seriesLatest) {
+        if (
+          Array.isArray(entry) &&
+          typeof entry[0] === "string" &&
+          typeof entry[1] === "number" &&
+          Number.isFinite(entry[1])
+        ) {
+          this.seriesLatest.set(entry[0], entry[1]);
+        }
+      }
+    }
+    this.feedId = typeof snapshot.feedId === "string" ? snapshot.feedId : null;
+    this.lastIngestAt = finiteOrNull(snapshot.lastIngestAt);
+    this.lastSentAt = finiteOrNull(snapshot.lastSentAt);
+    this.serverOffsetMs = finiteOrNull(snapshot.serverOffsetMs);
+    this.quoteSnapshotAt = finiteOrNull(snapshot.savedAt) ?? 0;
+    this.rowsWrittenDay =
+      typeof snapshot.rowsWrittenDay === "string" ? snapshot.rowsWrittenDay : this.rowsWrittenDay;
+    this.rowsWrittenToday = Math.max(0, Math.round(finiteOrNull(snapshot.rowsWrittenToday) ?? 0));
+  }
+
+  private ensureRowsDay(now: number): void {
+    const day = utcDayKey(now);
+    if (day === this.rowsWrittenDay) return;
+    this.rowsWrittenDay = day;
+    this.rowsWrittenToday = 0;
+  }
+
+  private recordRowsWritten(count: number, now = Date.now()): void {
+    if (count <= 0) return;
+    this.ensureRowsDay(now);
+    this.rowsWrittenToday += count;
+  }
+
+  private snapshotQuotes(now: number): void {
+    if (this.quotes.size === 0) return;
+    if (now - this.quoteSnapshotAt < QUOTE_SNAPSHOT_MS) return;
+    const snapshot: QuoteSnapshot = {
+      savedAt: now,
+      lastIngestAt: this.lastIngestAt,
+      lastSentAt: this.lastSentAt,
+      serverOffsetMs: this.serverOffsetMs,
+      feedId: this.feedId,
+      symbols: Array.from(this.feedSymbols).sort(),
+      quotes: Array.from(this.quotes.values()),
+      seriesLatest: Array.from(this.seriesLatest.entries()),
+      rowsWrittenDay: this.rowsWrittenDay,
+      rowsWrittenToday: this.rowsWrittenToday,
+    };
+    this.setMeta("quote_snapshot", JSON.stringify(snapshot));
+    this.quoteSnapshotAt = now;
+    this.recordRowsWritten(1, now);
   }
 
   private staleMs(): number {
@@ -242,27 +379,47 @@ export class MarketStream {
     let acceptedQuotes = 0;
     let ignoredQuotes = 0;
     let acceptedBars = 0;
+    const broadcast: MemoryQuote[] = [];
 
-    this.transaction(() => {
-      for (const quote of quotes) {
-        if (this.upsertQuote(quote, now)) acceptedQuotes += 1;
-        else ignoredQuotes += 1;
+    for (const quote of quotes) {
+      const result = this.upsertQuote(quote, now);
+      if (result) {
+        acceptedQuotes += 1;
+        broadcast.push(result);
+      } else {
+        ignoredQuotes += 1;
       }
-      for (const item of series) acceptedBars += this.upsertSeries(item);
-      this.setMeta("feed_id", String(payload.feedId ?? "unknown"));
-      if (acceptedQuotes > 0 || acceptedBars > 0) {
-        this.setMeta("last_ingest_at", String(now));
-      }
-      this.setMeta("last_sent_at", String(Number.isFinite(payload.sentAt) ? payload.sentAt : now));
-      if (Number.isFinite(payload.serverOffsetMs)) {
-        this.setMeta("server_offset_ms", String(payload.serverOffsetMs));
-      }
-    });
+    }
+
+    for (const item of series) acceptedBars += this.upsertSeries(item, now);
+
+    this.feedId = String(payload.feedId ?? "unknown");
+    this.lastSentAt = Number.isFinite(payload.sentAt) ? payload.sentAt : now;
+    if (typeof payload.serverOffsetMs === "number" && Number.isFinite(payload.serverOffsetMs)) {
+      this.serverOffsetMs = payload.serverOffsetMs;
+    }
+    if (acceptedQuotes > 0 || acceptedBars > 0) this.lastIngestAt = now;
+
+    for (const quote of broadcast) {
+      this.broadcast({
+        type: "price",
+        symbol: quote.symbol,
+        price: quote.mid,
+        bid: quote.bid,
+        ask: quote.ask,
+        ts: quote.ts,
+        feed: "exness",
+        marketOpen: quote.marketOpen,
+      });
+    }
+
+    this.snapshotQuotes(now);
+    this.pruneBars(now);
 
     return jsonResponse({ ok: true, acceptedQuotes, ignoredQuotes, acceptedBars });
   }
 
-  private upsertQuote(input: FeedQuoteInput, now: number): boolean {
+  private upsertQuote(input: FeedQuoteInput, now: number): MemoryQuote | null {
     if (
       !Number.isFinite(input.bid) ||
       !Number.isFinite(input.ask) ||
@@ -271,71 +428,77 @@ export class MarketStream {
       input.ask <= 0 ||
       input.ask < input.bid
     ) {
-      return false;
+      return null;
     }
 
+    this.feedSymbols.add(input.symbol);
     const mid = (input.bid + input.ask) / 2;
-    const existing = this.sql()
-      .exec("SELECT mid, ts FROM feed_quotes WHERE symbol = ?", input.symbol)
-      .toArray()[0];
-    if (existing && Number(existing["ts"]) >= input.ts) {
-      this.sql().exec(
-        "UPDATE feed_quotes SET market_open = ?, received_at = ? WHERE symbol = ?",
-        input.marketOpen === false ? 0 : 1,
-        now,
-        input.symbol,
-      );
-      return false;
+    const existing = this.quotes.get(input.symbol);
+    if (existing && existing.ts >= input.ts) {
+      existing.marketOpen = input.marketOpen !== false;
+      existing.receivedAt = now;
+      return null;
     }
     if (
       existing &&
       quoteJumpExceeded(
         { mid, ts: input.ts },
-        { mid: Number(existing["mid"]), ts: Number(existing["ts"]) },
+        { mid: existing.mid, ts: existing.ts },
         now,
         maxFeedJumpPct(input.symbol),
       )
     ) {
-      return false;
+      return null;
     }
 
-    this.sql().exec(
-      `INSERT INTO feed_quotes (symbol, bid, ask, mid, ts, market_open, provider_symbol, received_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(symbol) DO UPDATE SET
-         bid = excluded.bid,
-         ask = excluded.ask,
-         mid = excluded.mid,
-         ts = excluded.ts,
-         market_open = excluded.market_open,
-         provider_symbol = excluded.provider_symbol,
-         received_at = excluded.received_at`,
-      input.symbol,
-      input.bid,
-      input.ask,
+    const quote: MemoryQuote = {
+      symbol: input.symbol,
+      bid: input.bid,
+      ask: input.ask,
       mid,
-      input.ts,
-      input.marketOpen === false ? 0 : 1,
-      input.providerSymbol ?? null,
-      now,
-    );
-    return true;
+      ts: input.ts,
+      marketOpen: input.marketOpen !== false,
+      providerSymbol: input.providerSymbol ?? null,
+      receivedAt: now,
+    };
+    this.quotes.set(input.symbol, quote);
+    return quote;
   }
 
-  private upsertSeries(input: FeedCandleInput): number {
+  private upsertSeries(input: FeedCandleInput, now: number): number {
     if (typeof input.symbol !== "string" || !isChartInterval(input.interval)) return 0;
     if (!Array.isArray(input.bars) || input.bars.length === 0) return 0;
-    if (input.snapshot) {
-      this.sql().exec(
-        "DELETE FROM feed_candles WHERE symbol = ? AND interval = ?",
-        input.symbol,
-        input.interval,
-      );
-    }
 
+    const intervalSec = Math.max(60, Math.round(intervalMs(input.interval) / 1000));
     let accepted = 0;
     for (const bar of input.bars) {
       if (!validCandle(bar)) continue;
+      const closed = (bar.time + intervalSec) * 1000 <= now + 1_000;
+      const key = `${input.symbol}:${input.interval}`;
+      if (!closed) {
+        const live = this.liveBars.get(key);
+        if (!live || bar.time >= live.time) this.liveBars.set(key, bar);
+        accepted += 1;
+        continue;
+      }
+      const live = this.liveBars.get(key);
+      if (live && live.time <= bar.time) this.liveBars.delete(key);
+      const latest = this.seriesLatest.get(key);
+
+      const existing = this.sql()
+        .exec(
+          `SELECT open, high, low, close, volume FROM feed_candles
+           WHERE symbol = ? AND interval = ? AND time = ?`,
+          input.symbol,
+          input.interval,
+          bar.time,
+        )
+        .toArray()[0];
+      if (existing && sameCandle(existing, bar)) {
+        if (latest == null || bar.time > latest) this.seriesLatest.set(key, bar.time);
+        continue;
+      }
+
       this.sql().exec(
         `INSERT INTO feed_candles (symbol, interval, time, open, high, low, close, volume)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -354,29 +517,40 @@ export class MarketStream {
         bar.close,
         bar.volume ?? null,
       );
+      if (latest == null || bar.time > latest) this.seriesLatest.set(key, bar.time);
+      this.recordRowsWritten(1, now);
       accepted += 1;
     }
-    this.pruneSeries(input.symbol, input.interval);
     return accepted;
   }
 
-  private pruneSeries(symbol: string, interval: ChartInterval): void {
+  private pruneBars(now: number): void {
+    if (now - this.lastPruneAt < BAR_PRUNE_MS) return;
+    this.loadSeriesLatest();
     const retention = feedRetentionBars(this.env.DEV_FEED_RETENTION_BARS);
-    this.sql().exec(
-      `DELETE FROM feed_candles
-       WHERE symbol = ? AND interval = ?
-         AND time NOT IN (
-           SELECT time FROM feed_candles
-           WHERE symbol = ? AND interval = ?
-           ORDER BY time DESC
-           LIMIT ?
-         )`,
-      symbol,
-      interval,
-      symbol,
-      interval,
-      retention,
-    );
+    const clauses: string[] = [];
+    const bindings: (string | number)[] = [];
+    for (const [key, latest] of this.seriesLatest) {
+      const separator = key.lastIndexOf(":");
+      if (separator <= 0) continue;
+      const symbol = key.slice(0, separator);
+      const interval = key.slice(separator + 1);
+      if (!isChartInterval(interval)) continue;
+      const stepSec = Math.max(60, Math.round(intervalMs(interval) / 1000));
+      const cutoff = latest - retention * stepSec;
+      clauses.push("(symbol = ? AND interval = ? AND time < ?)");
+      bindings.push(symbol, interval, cutoff);
+    }
+    if (clauses.length > 0) {
+      const cursor = this.sql().exec(
+        `DELETE FROM feed_candles WHERE ${clauses.join(" OR ")}`,
+        ...bindings,
+      );
+      this.recordRowsWritten(cursor.rowsWritten ?? 0, now);
+    }
+    this.lastPruneAt = now;
+    this.setMeta("last_prune_at", String(now));
+    this.recordRowsWritten(1, now);
   }
 
   private feedQuotes(url: URL): Response {
@@ -389,25 +563,18 @@ export class MarketStream {
       ),
     );
     const now = Date.now();
-    const lastIngestAt = this.metaNumber("last_ingest_at");
+    const lastIngestAt = this.lastIngestAt;
     const stale = feedIsStale(lastIngestAt, now, this.staleMs());
     if (symbols.length === 0) {
       const empty: FeedQuotesResponse = { quotes: [], stale };
       return jsonResponse(empty);
     }
 
-    const placeholders = symbols.map(() => "?").join(",");
-    const rows = this.sql()
-      .exec(
-        `SELECT symbol, bid, ask, mid, ts, market_open FROM feed_quotes WHERE symbol IN (${placeholders})`,
-        ...symbols,
-      )
-      .toArray();
     const daily = this.dailyBars(symbols);
     const quotes: FeedQuoteRecord[] = [];
-    for (const row of rows) {
-      const symbol = typeof row["symbol"] === "string" ? row["symbol"] : "";
-      const record = this.quoteRecord(row, daily.get(symbol), lastIngestAt, now);
+    for (const symbol of symbols) {
+      const quote = this.quotes.get(symbol);
+      const record = this.quoteRecord(quote, daily.get(symbol), lastIngestAt, now);
       if (record) quotes.push(record);
     }
     const payload: FeedQuotesResponse = { quotes, stale };
@@ -415,31 +582,21 @@ export class MarketStream {
   }
 
   private quoteRecord(
-    row: Record<string, unknown>,
+    quote: MemoryQuote | undefined,
     daily: FeedDailyBar | undefined,
     lastIngestAt: number | null,
     now: number,
   ): FeedQuoteRecord | null {
-    const symbol = typeof row["symbol"] === "string" ? row["symbol"] : "";
-    const bid = Number(row["bid"]);
-    const ask = Number(row["ask"]);
-    const ts = Number(row["ts"]);
-    if (!symbol || !Number.isFinite(bid) || !Number.isFinite(ask) || !Number.isFinite(ts)) {
-      return null;
-    }
-    if (bid <= 0 || ask <= 0 || ask < bid) return null;
-    const storedMid = Number(row["mid"]);
-    const mid = Number.isFinite(storedMid) && storedMid > 0 ? storedMid : (bid + ask) / 2;
-    const marketOpen = Number(row["market_open"]) !== 0;
-    const stale = quoteIsStale(ts, marketOpen, lastIngestAt, now, this.staleMs());
-    const stats = computeFeedQuoteStats(mid, daily);
+    if (!quote) return null;
+    const stale = quoteIsStale(quote.ts, quote.marketOpen, lastIngestAt, now, this.staleMs());
+    const stats = computeFeedQuoteStats(quote.mid, daily);
     return {
-      symbol,
-      bid,
-      ask,
-      mid,
-      ts,
-      marketOpen,
+      symbol: quote.symbol,
+      bid: quote.bid,
+      ask: quote.ask,
+      mid: quote.mid,
+      ts: quote.ts,
+      marketOpen: quote.marketOpen,
       stale,
       ...(stats.change == null ? {} : { change: stats.change }),
       ...(stats.high == null ? {} : { high: stats.high }),
@@ -497,32 +654,113 @@ export class MarketStream {
       if (candle) candles.push(candle);
     }
     candles.reverse();
+    const live = this.liveBars.get(`${symbol}:${interval}`);
+    if (live) {
+      const last = candles[candles.length - 1];
+      if (!last || live.time > last.time) candles.push(live);
+      else if (live.time === last.time) candles[candles.length - 1] = live;
+    }
     const payload: FeedCandlesResponse = {
       symbol,
       interval,
-      candles,
-      stale: feedIsStale(this.metaNumber("last_ingest_at"), Date.now(), this.staleMs()),
+      candles: candles.slice(-points),
+      stale: feedIsStale(this.lastIngestAt, Date.now(), this.staleMs()),
     };
     return jsonResponse(payload);
   }
 
   private feedStatus(): Response {
-    const lastIngestAt = this.metaNumber("last_ingest_at");
-    const quoteRow = this.sql().exec("SELECT COUNT(*) AS count FROM feed_quotes").toArray()[0];
-    const seriesRow = this.sql()
-      .exec(
-        "SELECT COUNT(*) AS count FROM (SELECT symbol, interval FROM feed_candles GROUP BY symbol, interval)",
-      )
-      .toArray()[0];
+    const now = Date.now();
+    this.ensureRowsDay(now);
+    const lastIngestAt = this.lastIngestAt;
+    const series = this.seriesStatus();
+    const latest = new Map(
+      series
+        .filter((item) => item.latest != null)
+        .map((item) => [`${item.symbol}:${item.interval}`, item.latest as number]),
+    );
+    const dayStart = utcDayStart(now);
+    const elapsed = Math.max(1, now - dayStart);
+    const rowsWrittenPerDayEstimate =
+      elapsed >= 60 * 60_000
+        ? Math.round((this.rowsWrittenToday * 86_400_000) / elapsed)
+        : this.rowsWrittenToday;
     const status: FeedStatus = {
-      feedId: this.meta("feed_id"),
+      feedId: this.feedId,
       lastIngestAt,
-      lastSentAt: this.metaNumber("last_sent_at"),
-      quoteCount: Number(quoteRow?.["count"] ?? 0),
-      seriesCount: Number(seriesRow?.["count"] ?? 0),
-      stale: feedIsStale(lastIngestAt, Date.now(), this.staleMs()),
+      lastSentAt: this.lastSentAt,
+      quoteCount: this.quotes.size,
+      seriesCount: series.length,
+      stale: feedIsStale(lastIngestAt, now, this.staleMs()),
+      quoteSnapshotAt: this.quoteSnapshotAt || null,
+      rowsWrittenToday: this.rowsWrittenToday,
+      rowsWrittenPerDayEstimate,
+      missing: this.missingSeries(now, latest),
+      series,
     };
     return jsonResponse(status);
+  }
+
+  private loadSeriesLatest(): void {
+    if (this.seriesLatestLoaded) return;
+    const rows = this.sql()
+      .exec(
+        `SELECT symbol, interval, MAX(time) AS latest FROM feed_candles
+         GROUP BY symbol, interval`,
+      )
+      .toArray();
+    for (const row of rows) {
+      const symbol = typeof row["symbol"] === "string" ? row["symbol"] : "";
+      const interval = row["interval"];
+      const latest = Number(row["latest"]);
+      if (!symbol || !isChartInterval(interval)) continue;
+      if (!Number.isFinite(latest) || latest <= 0) continue;
+      this.seriesLatest.set(`${symbol}:${interval}`, latest);
+    }
+    this.seriesLatestLoaded = true;
+  }
+
+  private seriesStatus(): FeedSeriesStatus[] {
+    this.loadSeriesLatest();
+    const result: FeedSeriesStatus[] = [];
+    for (const [key, latest] of Array.from(this.seriesLatest.entries()).sort(([a], [b]) =>
+      a.localeCompare(b),
+    )) {
+      const separator = key.lastIndexOf(":");
+      if (separator <= 0) continue;
+      const symbol = key.slice(0, separator);
+      const interval = key.slice(separator + 1);
+      if (!isChartInterval(interval)) continue;
+      result.push({ symbol, interval, latest });
+    }
+    return result;
+  }
+
+  private missingSeries(now: number, latest: Map<string, number>): FeedMissingSeries[] {
+    const result: FeedMissingSeries[] = [];
+    const symbols = Array.from(this.feedSymbols).sort();
+    for (const symbol of symbols) {
+      for (const interval of CHART_INTERVALS) {
+        const key = `${symbol}:${interval.value}`;
+        const last = latest.get(key);
+        const stepMs = intervalMs(interval.value);
+        if (last == null) {
+          result.push({
+            symbol,
+            interval: interval.value,
+            count: MAX_MISSING_HISTORY_BARS,
+            reason: "empty",
+          });
+          continue;
+        }
+        const grace = interval.value === "1min" ? 2 * 60_000 : Math.max(stepMs * 3, 3 * 60_000);
+        const age = now - last * 1000;
+        if (age <= grace) continue;
+        const count = Math.min(MAX_MISSING_HISTORY_BARS, Math.max(1, Math.ceil(age / stepMs)));
+        result.push({ symbol, interval: interval.value, count, reason: "stale" });
+      }
+    }
+    return result;
   }
 
   private keys(): string[] {
@@ -686,6 +924,51 @@ export class MarketStream {
       }
     }
   }
+}
+
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function utcDayKey(now: number): string {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+function utcDayStart(now: number): number {
+  const date = new Date(now);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function validMemoryQuote(value: unknown): value is MemoryQuote {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value["symbol"] === "string" &&
+    value["symbol"].length > 0 &&
+    typeof value["bid"] === "number" &&
+    Number.isFinite(value["bid"]) &&
+    value["bid"] > 0 &&
+    typeof value["ask"] === "number" &&
+    Number.isFinite(value["ask"]) &&
+    value["ask"] >= value["bid"] &&
+    typeof value["mid"] === "number" &&
+    Number.isFinite(value["mid"]) &&
+    value["mid"] > 0 &&
+    typeof value["ts"] === "number" &&
+    Number.isFinite(value["ts"]) &&
+    value["ts"] > 0
+  );
+}
+
+function sameCandle(row: Record<string, unknown>, bar: MarketCandle): boolean {
+  const volume = row["volume"] == null ? null : Number(row["volume"]);
+  const barVolume = bar.volume == null ? null : bar.volume;
+  return (
+    Number(row["open"]) === bar.open &&
+    Number(row["high"]) === bar.high &&
+    Number(row["low"]) === bar.low &&
+    Number(row["close"]) === bar.close &&
+    volume === barVolume
+  );
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

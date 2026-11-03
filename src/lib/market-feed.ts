@@ -7,7 +7,8 @@ import {
 } from "./market-data";
 
 export const DEV_FEED_PATH = "/api/dev/feed/ingest";
-export const MARKET_FEED_INSTANCE = "markets-v3";
+export const FEED_STATUS_PATH = "/feed-status";
+export const MARKET_FEED_INSTANCE = "markets-v4";
 export const FEED_INTERNAL_HEADER = "x-vantor-feed";
 export const FEED_INTERNAL_VALUE = "internal";
 export const FEED_INTERNAL_BASE_URL = "https://market-feed.internal";
@@ -23,6 +24,9 @@ export const MAX_FEED_JUMP_GAP_MS = 60_000;
 export const DEFAULT_FEED_STALE_MS = 10_000;
 export const DEFAULT_FEED_MAX_JUMP_PCT = 0.05;
 export const DEFAULT_FEED_RETENTION_BARS = 2_000;
+export const QUOTE_SNAPSHOT_MS = 30_000;
+export const BAR_PRUNE_MS = 60 * 60_000;
+export const MAX_MISSING_HISTORY_BARS = 300;
 
 const FEED_INTERVALS = CHART_INTERVALS.map((item) => item.value) as [
   ChartInterval,
@@ -78,6 +82,19 @@ export type FeedQuotesResponse = {
   stale: boolean;
 };
 
+export type FeedMissingSeries = {
+  symbol: string;
+  interval: ChartInterval;
+  count: number;
+  reason: "empty" | "stale";
+};
+
+export type FeedSeriesStatus = {
+  symbol: string;
+  interval: ChartInterval;
+  latest: number | null;
+};
+
 export type FeedStatus = {
   feedId: string | null;
   lastIngestAt: number | null;
@@ -85,6 +102,11 @@ export type FeedStatus = {
   quoteCount: number;
   seriesCount: number;
   stale: boolean;
+  quoteSnapshotAt: number | null;
+  rowsWrittenToday: number;
+  rowsWrittenPerDayEstimate: number;
+  missing: FeedMissingSeries[];
+  series: FeedSeriesStatus[];
 };
 
 export type FeedDailyBar = {

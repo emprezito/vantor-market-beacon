@@ -12,7 +12,12 @@ import {
   type MarketQuote,
   type QuoteMap,
 } from "./market-data";
-import { loadFeedCandles, loadFeedQuotes } from "./market-feed.server";
+import {
+  feedEnabled,
+  loadFeedCandles,
+  loadFeedQuotesResult,
+  type FeedQuotesResult,
+} from "./market-feed.server";
 
 const API_URL = "https://api.twelvedata.com";
 const DEFAULT_QUOTE_TTL_MS = 60_000;
@@ -234,12 +239,21 @@ async function loadQuote(symbol: string): Promise<MarketQuote> {
 
 export async function loadQuotes(symbols: string[]): Promise<QuoteMap> {
   const unique = Array.from(new Set(symbols)).filter(isInstrument);
-  const feed: QuoteMap = await loadFeedQuotes(unique).catch(() => ({}));
-  const missing = unique.filter((symbol) => !feed[symbol]);
+  const configured = feedEnabled();
+  const feed: FeedQuotesResult = await loadFeedQuotesResult(unique).catch(() => ({
+    quotes: {},
+    enabled: configured,
+    available: false,
+    stale: true,
+  }));
+  const fallback = feed.enabled && (!feed.available || feed.stale);
+  const missing = unique.filter((symbol) => !feed.quotes[symbol]);
   const quotes = await Promise.all(missing.map(loadQuote));
   return {
-    ...feed,
-    ...Object.fromEntries(quotes.map((quote) => [quote.symbol, quote])),
+    ...feed.quotes,
+    ...Object.fromEntries(
+      quotes.map((quote) => [quote.symbol, fallback ? { ...quote, feedFallback: true } : quote]),
+    ),
   };
 }
 

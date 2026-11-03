@@ -144,7 +144,41 @@ describe("market feed read-through", () => {
       }),
     });
     const failed = await loadQuotes(["EURUSD"]);
-    expect(failed["EURUSD"]?.source).toBe("simulated");
+    expect(failed["EURUSD"]).toMatchObject({
+      source: "simulated",
+      feedFallback: true,
+    });
+  });
+
+  it("labels fallback quotes when the Exness feed is stale", async () => {
+    vi.stubGlobal("__env__", {
+      ALLOW_DEV_FEED: "true",
+      MARKET_STREAM: feedStub(async () =>
+        json({ quotes: [], stale: true } satisfies FeedQuotesResponse),
+      ),
+    });
+
+    const quotes = await loadQuotes(["EURUSD"]);
+
+    expect(quotes["EURUSD"]).toMatchObject({
+      feedFallback: true,
+    });
+  });
+
+  it("labels Twelve quotes when the Exness response is incomplete", async () => {
+    vi.stubGlobal("__env__", {
+      ALLOW_DEV_FEED: "true",
+      MARKET_STREAM: feedStub(async () =>
+        json({ quotes: [quote()], stale: false } satisfies FeedQuotesResponse),
+      ),
+    });
+
+    const quotes = await loadQuotes(["XAUUSD", "EURUSD"]);
+
+    expect(quotes["XAUUSD"]?.feedFallback).toBeUndefined();
+    expect(quotes["EURUSD"]).toMatchObject({
+      feedFallback: true,
+    });
   });
 
   it("prefers Exness candles for symbols without a Twelve Data mapping", async () => {

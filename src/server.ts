@@ -3,6 +3,7 @@ import "./lib/error-capture";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { handleDevFeedRequest } from "./lib/dev-feed.server";
+import { handleFeedStatusRequest } from "./lib/feed-status.server";
 import { MARKET_FEED_INSTANCE } from "./lib/market-feed";
 import { verifyRealtimeTicket } from "./lib/realtime-ticket";
 import { handleTerminalApi } from "./lib/terminal-api/router";
@@ -111,6 +112,9 @@ export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const runtimeEnv = (globalThis as RealtimeGlobals).__env__ ?? ((env ?? {}) as WorkerEnv);
+      const feedStatus = await handleFeedStatusRequest(request, runtimeEnv);
+      if (feedStatus) return feedStatus;
+
       const feed = await handleDevFeedRequest(request, runtimeEnv);
       if (feed) return feed;
 

@@ -144,19 +144,23 @@ function Trade() {
   const feedLabel =
     q.feed === "exness"
       ? q.marketOpen === false
-        ? "Dev feed · closed"
+        ? "Dev feed �� closed"
         : feedBlocked
           ? "Dev feed stale"
-          : "Dev feed · Exness MT5"
-      : streaming
-        ? "Streaming"
-        : quotesLoading && q.source === "simulated"
-          ? "Connecting"
-          : q.source === "live"
-            ? "Live feed"
-            : q.source === "cached"
-              ? "Cached feed"
-              : "Simulated feed";
+          : "Dev feed �� Exness MT5"
+      : q.feedFallback
+        ? q.source === "simulated"
+          ? "Market data unavailable"
+          : "Twelve fallback"
+        : streaming
+          ? "Streaming"
+          : quotesLoading && q.source === "simulated"
+            ? "Connecting"
+            : q.source === "live"
+              ? "Live feed"
+              : q.source === "cached"
+                ? "Cached feed"
+                : "Simulated feed";
   const feedTone =
     q.feed === "exness"
       ? q.marketOpen === false
@@ -164,11 +168,15 @@ function Trade() {
         : feedBlocked
           ? "bg-amber-500/15 text-amber-700"
           : "bg-accent/15 text-accent"
-      : q.source === "live"
-        ? "bg-accent/15 text-accent"
-        : q.source === "cached"
-          ? "bg-muted text-muted-foreground"
-          : "bg-amber-500/15 text-amber-700";
+      : q.feedFallback
+        ? q.source === "simulated"
+          ? "bg-destructive/15 text-destructive"
+          : "bg-amber-500/15 text-amber-700"
+        : q.source === "live"
+          ? "bg-accent/15 text-accent"
+          : q.source === "cached"
+            ? "bg-muted text-muted-foreground"
+            : "bg-amber-500/15 text-amber-700";
   const money = (n: number) => formatMoney(n, currency);
   const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
   const limitValid =
@@ -318,9 +326,11 @@ function Trade() {
                   title={
                     q.feed === "exness"
                       ? "Exness MT5 dev feed. New orders pause when the feed is stale or the market is closed."
-                      : q.source === "simulated"
-                        ? "Live feed unavailable. Add TWELVE_DATA_API_KEY to the Worker, or check the provider plan and symbol coverage."
-                        : undefined
+                      : q.feedFallback
+                        ? "The Exness bridge is stale or unavailable; this quote comes from Twelve Data fallback data."
+                        : q.source === "simulated"
+                          ? "Live feed unavailable. Add TWELVE_DATA_API_KEY to the Worker, or check the provider plan and symbol coverage."
+                          : undefined
                   }
                 >
                   {feedLabel}
