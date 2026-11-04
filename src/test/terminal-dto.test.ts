@@ -78,4 +78,26 @@ describe("terminal account view FX conversion", () => {
     expect(accountViewDto(view(Number.NaN)).fxRate).toBe(1);
     expect(accountViewDto(view(-5)).fxRate).toBe(1);
   });
+
+  it("does not use fallback prices to calculate equity", () => {
+    const fallbackView = {
+      ...view(1),
+      quotes: {
+        EURUSD: {
+          ...quotes.EURUSD,
+          bid: 1.2,
+          ask: 1.2002,
+          mid: 1.2001,
+          feed: "twelve" as const,
+          feedFallback: true,
+        },
+      },
+    };
+
+    const dto = accountViewDto(fallbackView);
+
+    expect(dto.equity).toBe(100_000);
+    expect(dto.marginUsed).toBe(11);
+    expect(dto.freeMargin).toBe(99_989);
+  });
 });

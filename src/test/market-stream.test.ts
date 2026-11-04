@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FEED_INTERNAL_HEADER, FEED_INTERNAL_VALUE, type FeedPayload } from "@/lib/market-feed";
+import {
+  FEED_INTERNAL_HEADER,
+  FEED_INTERNAL_VALUE,
+  FEED_SERVER_HEADER,
+  type FeedPayload,
+} from "@/lib/market-feed";
 import { MarketStream } from "@/lib/market-stream";
 
 const NOW = Date.parse("2026-10-29T12:00:30.000Z");
@@ -56,7 +61,7 @@ function candleKey(bindings: unknown[]): string {
   return `${String(bindings[0])}:${String(bindings[1])}:${String(bindings[2])}`;
 }
 
-function makeStream() {
+function makeStream(env: Record<string, string> = {}) {
   const sql = new FakeSql();
   const state = {
     storage: {
@@ -68,8 +73,56 @@ function makeStream() {
   const stream = new MarketStream(state as never, {
     DEV_FEED_STALE_MS: "10000",
     DEV_FEED_RETENTION_BARS: "2000",
+    ...env,
   });
   return { stream, sql };
+}
+
+class FakeSocket {
+  readonly sent: Record<string, unknown>[] = [];
+  private readonly listeners = new Map<string, (() => void)[]>();
+
+  accept() {}
+
+  addEventListener(type: string, listener: () => void) {
+    const list = this.listeners.get(type) ?? [];
+    list.push(listener);
+    this.listeners.set(type, list);
+  }
+
+  send(data: string) {
+    this.sent.push(JSON.parse(data) as Record<string, unknown>);
+  }
+
+  close() {
+    for (const listener of this.listeners.get("close") ?? []) listener();
+  }
+}
+
+async function connect(stream: MarketStream, serverId: string): Promise<FakeSocket> {
+  const pair = [new FakeSocket(), new FakeSocket()] as const;
+  let server: FakeSocket | null = null;
+  class CapturePair {
+    readonly 0 = pair[0];
+    readonly 1 = pair[1];
+    constructor() {
+      server = pair[1];
+    }
+  }
+  vi.stubGlobal("WebSocketPair", CapturePair);
+  try {
+    await stream.fetch(
+      new Request("https://market-feed.internal/realtime", {
+        headers: {
+          upgrade: "websocket",
+          [FEED_SERVER_HEADER]: serverId,
+        },
+      }),
+    );
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+  }
+  return server!;
 }
 
 function payload(overrides: Partial<FeedPayload> = {}): FeedPayload {
@@ -201,5 +254,45 @@ describe("market stream storage behavior", () => {
     expect(sql.writes.filter((item) => item.query.startsWith("INSERT INTO feed_candles"))).toEqual(
       [],
     );
+  });
+
+  it("sends Exness ticks only to sockets on an allowlisted server", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const allowedServer = "22222222-2222-4222-8222-222222222222";
+    const blockedServer = "33333333-3333-4333-8333-333333333333";
+    const { stream } = makeStream({ DEV_FEED_SERVER_IDS: allowedServer });
+
+    await ingest(
+      stream,
+      payload({
+        quotes: [{ symbol: "XAUUSD", bid: 2400, ask: 2400.4, ts: NOW, marketOpen: true }],
+      }),
+    );
+
+    const allowed = await connect(stream, allowedServer);
+    const blocked = await connect(stream, blockedServer);
+
+    expect(allowed.sent.some((message) => message["feed"] === "exness")).toBe(true);
+    expect(blocked.sent.some((message) => message["feed"] === "exness")).toBe(false);
+
+    await ingest(
+      stream,
+      payload({
+        sentAt: NOW + 1,
+        quotes: [{ symbol: "XAUUSD", bid: 2401, ask: 2401.4, ts: NOW + 1, marketOpen: true }],
+      }),
+    );
+
+    expect(
+      allowed.sent.filter(
+        (message) => message["feed"] === "exness" && message["price"] === 2401.2,
+      ),
+    ).toHaveLength(1);
+    expect(
+      blocked.sent.filter(
+        (message) => message["feed"] === "exness" && message["price"] === 2401.2,
+      ),
+    ).toEqual([]);
   });
 });

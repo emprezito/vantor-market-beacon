@@ -20,6 +20,9 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Office lock files
+~$*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

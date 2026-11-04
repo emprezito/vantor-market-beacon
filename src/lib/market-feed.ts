@@ -8,9 +8,10 @@ import {
 
 export const DEV_FEED_PATH = "/api/dev/feed/ingest";
 export const FEED_STATUS_PATH = "/feed-status";
-export const MARKET_FEED_INSTANCE = "markets-v4";
+export const MARKET_FEED_INSTANCE = "markets-v5";
 export const FEED_INTERNAL_HEADER = "x-vantor-feed";
 export const FEED_INTERNAL_VALUE = "internal";
+export const FEED_SERVER_HEADER = "x-vantor-feed-server";
 export const FEED_INTERNAL_BASE_URL = "https://market-feed.internal";
 
 export const MAX_FEED_BODY_BYTES = 2 * 1024 * 1024;

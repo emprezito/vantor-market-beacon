@@ -13,6 +13,7 @@ import {
 } from "@/lib/chart-indicators";
 import {
   CHART_INTERVALS,
+  isFallbackQuote,
   isStaleFeedQuote,
   mergeQuotes,
   quoteFor,
@@ -65,12 +66,12 @@ function Trade() {
     quotes: liveQuotes,
     isLoading: quotesLoading,
     realtime: realtimeStatus,
-  } = useMarketQuotes(feedSymbols);
+  } = useMarketQuotes(feedSymbols, activeAccount?.id ?? null);
   const {
     candles,
     source: candleSource,
     feed: candleFeed,
-  } = useMarketCandles(symbol, timeframe, 180);
+  } = useMarketCandles(symbol, timeframe, 180, activeAccount?.id ?? null);
   const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const open = useServerFn(openTrade);
   const placeLimit = useServerFn(placeLimitOrder);
@@ -127,7 +128,9 @@ function Trade() {
   const fxRate = Number(acc?.fxRate ?? 1);
   const readOnly = activeAccount?.access_role === "investor";
   const floating = positions.reduce((s, p) => {
-    const price = closePriceFromQuote(p.side as Side, quoteFor(quotes, p.symbol, now));
+    const quote = quoteFor(quotes, p.symbol, now);
+    if (isFallbackQuote(quote)) return s;
+    const price = closePriceFromQuote(p.side as Side, quote);
     return (
       s + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), price) * fxRate
     );
@@ -140,6 +143,8 @@ function Trade() {
   const equity = balance + floating;
   const q = quoteFor(quotes, symbol, now);
   const feedBlocked = isStaleFeedQuote(q);
+  const fallbackBlocked = isFallbackQuote(q);
+  const entriesBlocked = feedBlocked || fallbackBlocked;
   const streaming = q.feed !== "exness" && isRealtimeSymbol(symbol) && realtimeStatus === "live";
   const feedLabel =
     q.feed === "exness"
@@ -484,10 +489,15 @@ function Trade() {
               remains available.
             </p>
           )}
+          {fallbackBlocked && (
+            <p className="text-xs text-amber-700">
+              Live prices are unavailable. New orders are paused until the market feed recovers.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <Button
               variant="destructive"
-              disabled={place.isPending || readOnly || !limitValid || feedBlocked}
+              disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
               onClick={() => place.mutate("sell")}
               className="h-16 flex-col py-3 font-semibold"
             >
@@ -497,7 +507,7 @@ function Trade() {
               </div>
             </Button>
             <Button
-              disabled={place.isPending || readOnly || !limitValid || feedBlocked}
+              disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
               onClick={() => place.mutate("buy")}
               className="h-16 flex-col bg-accent py-3 font-semibold text-accent-foreground hover:bg-accent/90"
             >

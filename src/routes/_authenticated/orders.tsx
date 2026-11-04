@@ -33,7 +33,7 @@ function OrdersPage() {
     ],
     [acc?.open, acc?.pending],
   );
-  const { quotes: liveQuotes } = useMarketQuotes(symbols);
+  const { quotes: liveQuotes } = useMarketQuotes(symbols, activeAccount?.id ?? null);
   const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const close = useServerFn(closeTrade);
   const cancel = useServerFn(cancelPendingOrder);

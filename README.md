@@ -96,12 +96,14 @@ market data, live P/L, margin, stop loss and take profit.
   P/L update every second in the UI.
 - Lightweight Charts candlestick chart with 1m/5m/15m/30m/1H timeframes, live
   last-bar updates and dashed entry price lines for open positions.
-- Server-side market feed (Twelve Data) with quote/candle caching and an
-  automatic deterministic simulated fallback when no API key or credits are
-  available. The terminal shows whether quotes are live, cached or simulated.
+- Server-side market feed: Exness quotes/candles for allowlisted servers, then
+  Twelve Data with caching, then a deterministic simulated fallback. The terminal
+  shows whether quotes are live, cached, fallback or simulated; fallback quotes
+  are display-only and block new orders, limit fills, SL/TP and fund movements.
 - Realtime `XAU/USD` and `BTC/USD` ticks via a server-side Twelve Data WebSocket
-  relay; the browser connects through an authenticated, short-lived ticket and
-  all clients share one upstream stream.
+  relay, plus server-scoped Exness ticks. The browser connects through an
+  authenticated, short-lived account/server-bound ticket and all clients share
+  one upstream stream.
 - Stop loss / take profit are validated when the order is placed and evaluated
   server-side on every account poll (every 5 seconds). Due limit orders are
   evaluated in the same poll.
@@ -142,7 +144,7 @@ market data, live P/L, margin, stop loss and take profit.
 | Data fetching    | TanStack Query (5-second account/quote poll, 60-second candle poll)         |
 | Forms / feedback | Plain React forms, Sonner toasts                                            |
 | Charts           | Lightweight Charts 5 (TradingView)                                          |
-| Market data      | Twelve Data REST API, server-side proxy with caching and simulated fallback |
+| Market data      | Exness dev feed, Twelve Data REST, server-side proxy with simulated fallback |
 | Auth             | Supabase Auth (`@supabase/supabase-js`)                                     |
 | Database         | Supabase Postgres with RLS                                                  |
 | Validation       | Custom validators in `src/lib/*` (no zod on the hot path)                   |
@@ -162,9 +164,10 @@ Browser
         │
 Cloudflare Worker (Vite/Nitro SSR + server functions)
   ├─ requireSupabaseAuth middleware: verifies JWT via getClaims()
-  ├─ market feed proxy: Twelve Data quotes/candles + in-memory cache
-  │     └─→ Twelve Data REST API (optional, server-only key)
-  ├─ /api/realtime/markets: signed-ticket WebSocket upgrade
+  ├─ market feed: Exness feed-first for allowlisted servers
+  │     ├─→ MarketStream Durable Object (quotes/candles in SQLite)
+  │     └─→ Twelve Data REST API + in-memory cache fallback
+  ├─ /api/realtime/markets: signed account/server-bound ticket
   │     └─→ MarketStream Durable Object → Twelve Data WebSocket
   ├─ user-scoped Supabase client (publishable key + user token, RLS)
   └─ supabaseAdmin (service role, server only): all writes + atomic RPC
@@ -184,15 +187,21 @@ Key properties:
   by RLS policies.
 - Server functions are protected by a bearer-token middleware and TanStack's
   CSRF middleware.
-- Quotes are loaded server-side (`src/lib/market-data.server.ts`) so the provider
-  key never reaches the browser. When the provider is unavailable the deterministic
-  engine in `src/lib/market.ts` supplies simulated quotes and candles, so the app
-  and trading logic keep working without an external feed.
+- Quotes are loaded server-side (`src/lib/market-data.server.ts`) so provider
+  keys never reach the browser. Exness data is read first only when the account's
+  `server_id` is in `DEV_FEED_SERVER_IDS`; a missing allowlist fails closed. Other
+  accounts, or symbols without a usable Exness quote, use Twelve Data, cache, or
+  the deterministic engine in `src/lib/market.ts`.
+- Fallback quotes (`feedFallback: true`) are display-only. New market/limit
+  orders, stop updates, pending fills, SL/TP, and fund movements are refused while
+  they are present; manual closes remain available. `ALLOW_FALLBACK_TRADING=true`
+  bypasses the fallback guard for private development only.
 - `XAU/USD` and `BTC/USD` also have a realtime path: an authenticated server
-  function issues a 120-second HMAC ticket, the Worker verifies it and forwards
-  the WebSocket upgrade to a single `MarketStream` Durable Object, which owns one
-  upstream Twelve Data connection and fans ticks out to every connected browser.
-  The provider key stays inside the Worker/DO.
+  function issues a 120-second HMAC ticket bound to the account and server, the
+  Worker verifies it and forwards the WebSocket upgrade to a single
+  `MarketStream` Durable Object, which owns one upstream Twelve Data connection
+  and fans ticks out to every connected browser. The provider key stays inside the
+  Worker/DO. Exness ticks are sent only to allowlisted servers.
 - Bid/ask are derived from the provider mid price plus the instrument spread; they
   are not exchange-native broker quotes.
 
@@ -257,8 +266,8 @@ layer.
 | `removeServerMember`          | `src/lib/partner.functions.ts`  | serverId, userId                                                       | Removes a member; admins cannot remove admins and owners cannot be removed                                                                                                     |
 | `listServerAccounts`          | `src/lib/partner.functions.ts`  | serverId                                                               | Lists safe account fields for a server, without credentials                                                                                                                    |
 | `changeServerAccountPassword` | `src/lib/partner.functions.ts`  | serverId, accountId, password                                          | Owner/admin resets the trader password for an account on that server                                                                                                           |
-| `getMarketQuotes`             | `src/lib/market.functions.ts`   | symbols[] (max 21)                                                     | Server-side quote feed; per-symbol cache, 60s TTL, simulated fallback                                                                                                          |
-| `getMarketCandles`            | `src/lib/market.functions.ts`   | symbol, interval, points (20–500)                                      | OHLC candles for the chart; provider cache and simulated fallback                                                                                                              |
+| `getMarketQuotes`             | `src/lib/market.functions.ts`   | symbols[] (max 21), accountId?                                         | Server-side quote feed; Exness for allowlisted server, then Twelve/cache/simulated; fallback marked display-only                                                               |
+| `getMarketCandles`            | `src/lib/market.functions.ts`   | symbol, interval, points (20–500), accountId?                          | OHLC candles for the chart; Exness for allowlisted server, then provider cache and simulated fallback                                                                          |
 | `getAccount`                  | `src/lib/trading.functions.ts`  | accountId                                                              | Snapshot: account, balance, open/closed positions (100), pending orders, transactions (100), quotes for open/pending symbols; auto-closes triggered SL/TP and fills due limits |
 | `openTrade`                   | `src/lib/trading.functions.ts`  | accountId, symbol, side, lots, stopLoss, takeProfit                    | Validates, checks free margin, inserts position atomically                                                                                                                     |
 | `placeLimitOrder`             | `src/lib/trading.functions.ts`  | accountId, symbol, side, lots, limitPrice, stopLoss, takeProfit        | Validates pending price/stop sides and inserts a pending order                                                                                                                 |
@@ -674,6 +683,16 @@ in Cloudflare secrets.
 | `TWELVE_DATA_API_KEYS`          | server only           | Comma-separated market data key pool; rotated round-robin and on 429                    |
 | `TWELVE_DATA_API_KEY`           | server only           | Single-key fallback; merged with the pool and de-duplicated                             |
 | `REALTIME_TICKET_SECRET`        | server only           | HMAC secret for short-lived realtime WebSocket tickets; required for realtime streaming |
+| `TERMINAL_TOKEN_SECRET`         | server only           | HMAC secret for terminal bearer tokens; do not reuse another secret                     |
+| `ALLOWED_ORIGINS`               | server only, optional | Comma-separated terminal CORS allowlist; defaults are built in                           |
+| `ALLOW_DEV_ORIGINS`             | server only, optional | `true` adds `http://localhost:8080` to terminal CORS                                     |
+| `ALLOW_DEV_FEED`                | server only, optional | `true` enables the private Exness ingest and feed status endpoints                       |
+| `DEV_FEED_SECRET`               | server only           | HMAC secret for `POST /api/dev/feed/ingest`; required when the feed is enabled           |
+| `DEV_FEED_SERVER_IDS`           | server only           | Comma-separated server ids allowed to read Exness quotes, candles and ticks; fails closed |
+| `DEV_FEED_ALLOWED_IPS`          | server only, optional | Comma-separated source IP allowlist for feed ingest                                      |
+| `DEV_FEED_STALE_MS`             | server only, optional | Feed staleness threshold (default 10000, minimum 1000)                                   |
+| `DEV_FEED_RETENTION_BARS`       | server only, optional | Bars retained per series (default 2000, minimum 500)                                     |
+| `ALLOW_FALLBACK_TRADING`        | server only, optional | `true` allows trading on fallback quotes for private development only; default false     |
 | `MARKET_QUOTE_TTL_MS`           | server only, optional | Quote cache TTL (default 60000, minimum 1000; use 15000–30000 only on paid plans)       |
 | `MARKET_CANDLE_TTL_MS`          | server only, optional | Candle cache TTL override (default 1m–15m by timeframe)                                 |
 
@@ -699,6 +718,13 @@ Notes:
 - Set `REALTIME_TICKET_SECRET` to a random 32-byte value (for example
   `openssl rand -hex 32`) to enable the realtime WebSocket relay. Without it, the
   endpoint returns 503 and the terminal falls back to REST quotes.
+- The Exness feed is for private development and controlled testing. Set
+  `ALLOW_DEV_FEED=true`, a `DEV_FEED_SECRET`, and comma-separated server UUIDs in
+  `DEV_FEED_SERVER_IDS`; an empty allowlist fails closed. See `docs/dev-feed.md`.
+- `ALLOW_DEV_FEED`, `DEV_FEED_*`, `ALLOW_FALLBACK_TRADING`, and the terminal
+  secrets are dashboard values, not committed vars. Deploy with
+  `bunx wrangler deploy --keep-vars` (after building) so a deploy does not remove
+  them.
 - If the database password contains `?`, URL-encode it as `%3F` (and as `%%3F`
   inside Windows `.cmd` files).
 
@@ -787,16 +813,22 @@ per-account transactions) against the live project.
 The app deploys as a Cloudflare Worker via Wrangler:
 
 ```sh
-bun run deploy
+bun run build
+bunx wrangler deploy --keep-vars
 ```
 
-- Public configuration is embedded in `wrangler.jsonc` (`vars`).
-- Put the service-role key in a Worker secret:
+- Public configuration is embedded in `wrangler.jsonc` (`vars`). Dashboard-only
+  variables (`ALLOW_DEV_FEED`, `DEV_FEED_*`, `ALLOW_FALLBACK_TRADING`,
+  `ALLOWED_ORIGINS`, `ALLOW_DEV_ORIGINS`) require `--keep-vars`; a plain
+  `wrangler deploy` can remove them.
+- Put server secrets in Worker secrets:
 
   ```sh
   bunx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-  bunx wrangler secret put TWELVE_DATA_API_KEY   # optional: enables live quotes
-  bunx wrangler secret put REALTIME_TICKET_SECRET # required for realtime streaming
+  bunx wrangler secret put TWELVE_DATA_API_KEY      # optional: enables live quotes
+  bunx wrangler secret put REALTIME_TICKET_SECRET   # required for realtime streaming
+  bunx wrangler secret put TERMINAL_TOKEN_SECRET    # required for the terminal API
+  bunx wrangler secret put DEV_FEED_SECRET          # required for dev feed ingest
   ```
 
 - `wrangler.jsonc` declares the `MARKET_STREAM` Durable Object binding and its
@@ -804,8 +836,9 @@ bun run deploy
   includes the class in the Worker bundle. Confirm both the generated
   `.output/server/wrangler.json` binding and the `MarketStream` export after builds.
 - Active WebSocket clients can keep an existing Durable Object on the previous
-  code after a deploy. Bump `REALTIME_INSTANCE` in `src/server.ts` when changing
-  relay behavior, then hard-refresh clients so they join the new instance.
+  code after a deploy. Bump `MARKET_FEED_INSTANCE` in `src/lib/market-feed.ts`
+  when changing feed or relay behavior, then hard-refresh clients so they join
+  the new instance.
 
 - Local Cloudflare preview uses `.dev.vars` for the same values.
 - `vite.config.ts` redirects TanStack Start's server entry to `src/server.ts`
@@ -854,19 +887,27 @@ Cloudflare Worker above is the current production deployment.
 - **Limit fills:** pending orders are evaluated only when the account is polled
   (`getAccount`, every 5 seconds while the terminal is open). There is no
   background scheduler, so fills can be delayed while the app is closed.
-- **Market feed:** quotes come from Twelve Data when configured, otherwise from a
-  deterministic synthetic engine. `XAU/USD` and `BTC/USD` can use realtime
-  WebSocket ticks; other symbols are REST/cached/simulated. There is no true
-  tick-level bid/ask, depth, swap, commission or spread-widening model; bid/ask is
-  provider mid ± the fixed instrument spread.
-- **Realtime scope:** the trial WebSocket only covers `XAU/USD` and `BTC/USD` in
-  this app; additional realtime symbols require a paid Twelve Data plan. If the
-  relay is unavailable, the terminal keeps the REST/cached/simulated quote path.
+- **Market feed:** allowlisted servers read Exness quotes/candles/ticks first;
+  other accounts use Twelve Data when configured, otherwise a deterministic
+  synthetic engine. `XAU/USD` and `BTC/USD` can use realtime WebSocket ticks;
+  other symbols are REST/cached/simulated. There is no true tick-level bid/ask,
+  depth, swap, commission or spread-widening model; bid/ask is provider mid ± the
+  fixed instrument spread.
+- **Fallback trading:** when Exness is unavailable or stale for an allowlisted
+  server, remaining symbols are marked `feedFallback` and trading is blocked for
+  new orders, limit fills, SL/TP and fund movements. Manual closes stay available.
+  `ALLOW_FALLBACK_TRADING=true` is for private development only.
+- **Realtime scope:** the trial Twelve Data WebSocket only covers `XAU/USD` and
+  `BTC/USD` in this app; additional realtime symbols require a paid plan. Exness
+  ticks are server-scoped to allowlisted servers. If the relay is unavailable,
+  the terminal keeps the REST/cached/simulated quote path.
 - **Feed limits:** caches are per Worker isolate and reset on deploy. Many symbols
   polled frequently need a paid Twelve Data plan; when the plan, key or symbol
   coverage fails, the UI falls back to cached or simulated data (shown in the
-  terminal badge). Index provider symbols are configured but not verified against
-  a paid plan.
+  terminal badge). The Exness `MarketStream` Durable Object writes closed bars to
+  SQLite, so it needs a Workers plan with sufficient Durable Object row limits;
+  `/feed-status` exposes `rowsWrittenToday` / `rowsWrittenPerDayEstimate`.
+  Index provider symbols are configured but not verified against a paid plan.
 - **Chart library:** Lightweight Charts is the standalone TradingView library. Full
   TradingView Advanced Charts (licensed) would require replacing the chart
   component and adding a UDF-compatible datafeed endpoint.

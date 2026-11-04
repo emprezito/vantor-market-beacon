@@ -14,6 +14,7 @@ import {
 } from "./market-data";
 import {
   feedEnabled,
+  feedServerIsAllowed,
   loadFeedCandles,
   loadFeedQuotesResult,
   type FeedQuotesResult,
@@ -237,16 +238,22 @@ async function loadQuote(symbol: string): Promise<MarketQuote> {
   return request;
 }
 
-export async function loadQuotes(symbols: string[]): Promise<QuoteMap> {
+export async function loadQuotes(
+  symbols: string[],
+  options: { serverId?: string | null } = {},
+): Promise<QuoteMap> {
   const unique = Array.from(new Set(symbols)).filter(isInstrument);
   const configured = feedEnabled();
-  const feed: FeedQuotesResult = await loadFeedQuotesResult(unique).catch(() => ({
+  const feed: FeedQuotesResult = await loadFeedQuotesResult(unique, {
+    serverId: options.serverId,
+  }).catch(() => ({
     quotes: {},
     enabled: configured,
+    allowed: feedServerIsAllowed(options.serverId),
     available: false,
     stale: true,
   }));
-  const fallback = feed.enabled && (!feed.available || feed.stale);
+  const fallback = feed.allowed && (!feed.available || feed.stale);
   const missing = unique.filter((symbol) => !feed.quotes[symbol]);
   const quotes = await Promise.all(missing.map(loadQuote));
   return {
@@ -352,10 +359,13 @@ export async function loadCandles(
   symbol: string,
   interval: ChartInterval,
   points = 180,
+  options: { serverId?: string | null } = {},
 ): Promise<MarketCandles> {
   const safeInterval = isChartInterval(interval) ? interval : "1min";
   const safePoints = Math.min(500, Math.max(20, Math.round(points)));
-  const feed = await loadFeedCandles(symbol, safeInterval, safePoints).catch(() => null);
+  const feed = await loadFeedCandles(symbol, safeInterval, safePoints, {
+    serverId: options.serverId,
+  }).catch(() => null);
   if (feed) return feed;
   if (!PROVIDER_SYMBOLS[symbol]) {
     return {

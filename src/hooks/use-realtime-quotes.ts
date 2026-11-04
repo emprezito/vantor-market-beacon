@@ -14,7 +14,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export function useRealtimeQuotes(symbols: string[]): {
+export function useRealtimeQuotes(symbols: string[], accountId: string | null): {
   quotes: QuoteMap;
   status: RealtimeStatus;
 } {
@@ -24,7 +24,7 @@ export function useRealtimeQuotes(symbols: string[]): {
   const requested = useMemo(() => Array.from(new Set(symbols.filter(isRealtimeSymbol))), [symbols]);
   const requestedRef = useRef(new Set<RealtimeSymbol>(requested));
   requestedRef.current = new Set(requested);
-  const enabled = requested.length > 0;
+  const enabled = requested.length > 0 && !!accountId;
   const [quotes, setQuotes] = useState<QuoteMap>({});
   const [status, setStatus] = useState<RealtimeStatus>("idle");
 
@@ -53,7 +53,7 @@ export function useRealtimeQuotes(symbols: string[]): {
       setStatus((current) => (current === "idle" ? "connecting" : "reconnecting"));
 
       try {
-        const ticket = await ticketFnRef.current();
+        const ticket = await ticketFnRef.current({ data: { accountId: accountId! } });
         if (cancelled) return;
 
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -132,7 +132,7 @@ export function useRealtimeQuotes(symbols: string[]): {
       if (retry) clearTimeout(retry);
       if (socket) socket.close();
     };
-  }, [enabled]);
+  }, [enabled, accountId]);
 
   return { quotes, status };
 }

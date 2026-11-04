@@ -15,7 +15,13 @@ import {
   type LimitOrderInput,
   type OrderInput,
 } from "./trading-validation";
-import { isStaleFeedQuote, quoteFor, type QuoteMap } from "./market-data";
+import {
+  FALLBACK_MARKET_MESSAGE,
+  isFallbackQuote,
+  isStaleFeedQuote,
+  quoteFor,
+  type QuoteMap,
+} from "./market-data";
 import { loadFxRate } from "./fx.server";
 
 type AccountRow = Database["public"]["Tables"]["trading_accounts"]["Row"];
@@ -79,12 +85,29 @@ export const TRADING_ACCOUNT_SELECT =
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-async function loadQuoteMap(symbols: string[]): Promise<QuoteMap> {
+async function loadQuoteMap(symbols: string[], serverId: string): Promise<QuoteMap> {
   const { loadQuotes } = await import("./market-data.server");
-  return loadQuotes(symbols);
+  return loadQuotes(symbols, { serverId });
 }
 
-function assertFreshQuotes(quotes: QuoteMap): void {
+type TradingEnv = {
+  ALLOW_FALLBACK_TRADING?: string;
+};
+
+export function fallbackTradingAllowed(): boolean {
+  const runtime = (globalThis as typeof globalThis & { __env__?: TradingEnv }).__env__;
+  const value = runtime?.ALLOW_FALLBACK_TRADING ?? process.env["ALLOW_FALLBACK_TRADING"];
+  return value === "true";
+}
+
+function hasFallbackQuotes(quotes: QuoteMap): boolean {
+  return Object.values(quotes).some(isFallbackQuote);
+}
+
+function assertTradableQuotes(quotes: QuoteMap): void {
+  if (!fallbackTradingAllowed() && hasFallbackQuotes(quotes)) {
+    throw new Error(FALLBACK_MARKET_MESSAGE);
+  }
   if (Object.values(quotes).some(isStaleFeedQuote)) {
     throw new Error("Market data is stale. Please try again shortly.");
   }
@@ -237,7 +260,7 @@ async function closeOne(
   const state = await snapshot(db, account);
   const position = state.positions.find((item) => item.id === id);
   if (!position) throw new Error("Position not found");
-  const prices = quotes ?? (await loadQuoteMap([position.symbol]));
+  const prices = quotes ?? (await loadQuoteMap([position.symbol], account.server_id));
   const price = closePriceFromQuote(
     position.side as Side,
     quoteFor(prices, position.symbol, Date.now()),
@@ -271,10 +294,14 @@ async function fillDueLimitOrders(
   if (!orders?.length) return;
 
   const initial = await snapshot(db, account);
-  const quotes = await loadQuoteMap([
-    ...orders.map((order) => order.symbol),
-    ...initial.positions.map((position) => position.symbol),
-  ]);
+  const quotes = await loadQuoteMap(
+    [
+      ...orders.map((order) => order.symbol),
+      ...initial.positions.map((position) => position.symbol),
+    ],
+    account.server_id,
+  );
+  if (!fallbackTradingAllowed() && hasFallbackQuotes(quotes)) return;
   if (Object.values(quotes).some(isStaleFeedQuote)) return;
   const fxRate = await loadFxRate(account.currency);
 
@@ -306,10 +333,11 @@ export async function processAccount(
 ) {
   const initial = await snapshot(db, account);
   const now = Date.now();
-  const initialQuotes = await loadQuoteMap(initial.positions.map((position) => position.symbol));
+  const initialQuotes = await loadQuoteMap(initial.positions.map((position) => position.symbol), account.server_id);
   for (const position of initial.positions) {
     const quote = quoteFor(initialQuotes, position.symbol, now);
     if (isStaleFeedQuote(quote)) continue;
+    if (!fallbackTradingAllowed() && isFallbackQuote(quote)) continue;
     const price = closePriceFromQuote(position.side as Side, quote);
     const hit = stopHit(
       position.side as Side,
@@ -362,10 +390,13 @@ export async function getAccountView(
   if (closed.error || transactions.error || pending.error) {
     throw new Error("Could not load account activity. Please try again.");
   }
-  const quotes = await loadQuoteMap([
-    ...state.positions.map((position) => position.symbol),
-    ...(pending.data ?? []).map((order) => order.symbol),
-  ]);
+  const quotes = await loadQuoteMap(
+    [
+      ...state.positions.map((position) => position.symbol),
+      ...(pending.data ?? []).map((order) => order.symbol),
+    ],
+    account.server_id,
+  );
   const fxRate = await loadFxRate(state.account.currency);
   return {
     account: accountSummary(state.account),
@@ -400,11 +431,11 @@ export async function openMarketOrder(
   const order = validateOrder(input);
   const state = await requireTradable(db, account);
   const now = Date.now();
-  const quotes = await loadQuoteMap([
-    order.symbol,
-    ...state.positions.map((position) => position.symbol),
-  ]);
-  assertFreshQuotes(quotes);
+  const quotes = await loadQuoteMap(
+    [order.symbol, ...state.positions.map((position) => position.symbol)],
+    account.server_id,
+  );
+  assertTradableQuotes(quotes);
   const quote = quoteFor(quotes, order.symbol, now);
   const price = openPriceFromQuote(order.side, quote);
   const exitPrice = closePriceFromQuote(order.side, quote);
@@ -442,8 +473,8 @@ export async function placeLimitOrder(
   const order = validateLimitOrder(input);
   const state = await requireTradable(db, account);
   const now = Date.now();
-  const quotes = await loadQuoteMap([order.symbol]);
-  assertFreshQuotes(quotes);
+  const quotes = await loadQuoteMap([order.symbol], account.server_id);
+  assertTradableQuotes(quotes);
   const quote = quoteFor(quotes, order.symbol, now);
   if (order.side === "buy" && order.limitPrice >= quote.ask) {
     throw new Error("Buy limit price must be below the current ask");
@@ -515,8 +546,8 @@ export async function modifyPosition(
     }
   }
 
-  const quotes = await loadQuoteMap([position.symbol]);
-  assertFreshQuotes(quotes);
+  const quotes = await loadQuoteMap([position.symbol], account.server_id);
+  assertTradableQuotes(quotes);
   const quote = quoteFor(quotes, position.symbol, Date.now());
   const exitPrice = closePriceFromQuote(position.side as Side, quote);
   if (stopLoss != null && stopHit(position.side as Side, exitPrice, stopLoss, null)) {
@@ -550,7 +581,10 @@ export async function moveFunds(
 ) {
   const state = await requireTradable(db, account);
   const now = Date.now();
-  const quotes = await loadQuoteMap(state.positions.map((position) => position.symbol));
+  const quotes = await loadQuoteMap(state.positions.map((position) => position.symbol), account.server_id);
+  if (!fallbackTradingAllowed() && hasFallbackQuotes(quotes)) {
+    throw new Error(FALLBACK_MARKET_MESSAGE);
+  }
   const fxRate = await loadFxRate(account.currency);
   const { used, floating } = exposure(
     state,

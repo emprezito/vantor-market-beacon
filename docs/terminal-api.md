@@ -41,7 +41,8 @@ Success:
 - Every authenticated request re-loads the account by id **and** server id. A missing, disabled, or epoch-mismatched account returns `401`.
 - Missing account, wrong password, and disabled account return the same `401` body and status.
 - Failed logins are rate limited by the existing `record_login_failure` RPC. A blocked login returns `429` with `Retry-After`.
-- Send `Authorization: Bearer <token>` on every request except `/login`, `/servers`, and `/stream`.
+- Send `Authorization: Bearer <token>` on every request except `/login`, `/servers`, `/quotes`, and `/stream`.
+- `/quotes` accepts an optional bearer token. Without one it returns Twelve Data, cached, or simulated quotes. With a valid token it is feed-first when the account's server is in `DEV_FEED_SERVER_IDS`. An invalid bearer returns `401`; it never silently downgrades.
 
 ## Endpoints
 
@@ -115,18 +116,44 @@ Returns balance, equity, margin, free margin, open positions, pending orders, an
 }
 ```
 
+During fallback, `equity`, `freeMargin`, and floating P/L exclude positions whose quotes are fallback. `marginUsed` remains based on each position's open price. `openPositions[].pnl` and `currentPrice` are still display values and may use a fallback quote.
+
 ### `GET /quotes?symbols=EURUSD,BTCUSD`
 
 ```json
 {
   "quotes": [
-    { "symbol": "EURUSD", "bid": 1.1, "ask": 1.1002, "ts": 1790000000000, "stale": false },
-    { "symbol": "BTCUSD", "bid": 60000, "ask": 60010, "ts": 1790000000000, "stale": true }
+    {
+      "symbol": "XAUUSD",
+      "bid": 4000.1,
+      "ask": 4000.35,
+      "ts": 1790000000000,
+      "stale": false,
+      "feed": "exness",
+      "marketOpen": true,
+      "change": 12.4,
+      "high": 4010.2,
+      "low": 3988.3
+    },
+    {
+      "symbol": "EURUSD",
+      "bid": 1.1,
+      "ask": 1.1002,
+      "ts": 1790000000000,
+      "stale": true,
+      "feedFallback": true
+    }
   ]
 }
 ```
 
-`stale` is `true` for cached or simulated quotes.
+`stale` is `true` for cached, simulated, or fallback quotes. `feed` is present when a quote comes from a named upstream (`exness`). `feedFallback: true` marks a display-only fallback quote for an allowlisted server when no usable Exness quote exists; it may be Twelve Data, cached, or simulated. Quotes for non-allowlisted accounts never use Exness data and are not marked `feedFallback`.
+
+### Market data guards
+
+While fallback quotes are present, new market and limit orders, stop updates, pending-order fills, SL/TP triggers, and fund movements are refused. Closing an existing position remains available. The API returns `409 fallback_market_data` with message `Live prices are unavailable`; stale Exness quotes return `409 stale_market_data`.
+
+`ALLOW_FALLBACK_TRADING=true` bypasses the fallback guard for private development only. It does not bypass the stale-feed guard.
 
 ### `GET /candles?symbol=EURUSD&interval=1h&points=180`
 
@@ -140,22 +167,23 @@ to 60 per minute per account.
   "interval": "1h",
   "candles": [{ "time": 1790000000, "open": 1.1, "high": 1.101, "low": 1.099, "close": 1.1005 }],
   "source": "live",
+  "feed": "exness",
   "stale": false,
   "fetchedAt": 1790000000000
 }
 ```
 
-`source` is `live`, `cached` or `simulated`; `stale` is `true` for cached or simulated candles.
+`source` is `live`, `cached` or `simulated`; `stale` is `true` for cached or simulated candles. `feed` is present when the series comes from a named upstream (`exness`). Feed candles are server-scoped to the authenticated account's server; non-allowlisted accounts receive Twelve Data or synthetic candles.
 
 ### `POST /stream-ticket`
 
-Returns a 60-second, account-bound WebSocket ticket. Limited to 10 requests per minute per account.
+Returns a 60-second ticket bound to the account, server, and `session_epoch`. Limited to 10 requests per minute per account.
 
 ```json
 { "ticket": "<opaque stream ticket>", "expiresAt": 1790000060000 }
 ```
 
-Open `wss://<host>/api/v1/terminal/stream?ticket=<ticket>` with a WebSocket upgrade. The server forwards the connection to the existing `MarketStream` Durable Object. Tickets are type-bound; terminal tokens cannot be used as stream tickets, and stream tickets cannot be used as terminal tokens.
+Open `wss://<host>/api/v1/terminal/stream?ticket=<ticket>` with a WebSocket upgrade. The server forwards the connection to the existing `MarketStream` Durable Object with the ticket's server id. Exness ticks are sent only when that server is in `DEV_FEED_SERVER_IDS`; other accounts still receive the Twelve Data realtime symbols. Tickets are type-bound; terminal tokens cannot be used as stream tickets, and stream tickets cannot be used as terminal tokens.
 
 ### `POST /orders`
 
@@ -242,7 +270,7 @@ Send `Idempotency-Key: <uuid>` on any mutating request. The key is stored for 24
 - `401` invalid credentials or invalid session
 - `403` investor mutation (`read_only_account`) or disallowed origin
 - `404` unknown route or account
-- `409` idempotency conflict or request in progress
+- `409` idempotency conflict, request in progress, stale feed (`stale_market_data`), or fallback quotes (`fallback_market_data`)
 - `413` body larger than 16 KB
 - `426` WebSocket upgrade required
 - `429` rate limited (`Retry-After`)
@@ -263,7 +291,10 @@ Allowed origins come from `ALLOWED_ORIGINS` (comma-separated). Defaults:
 - `TERMINAL_TOKEN_SECRET` — new random secret, at least 32 bytes. Do not reuse `REALTIME_TICKET_SECRET` or an old broker secret.
 - `ALLOWED_ORIGINS` — comma-separated allowlist.
 - `ALLOW_DEV_ORIGINS` — optional, `true` to allow `http://localhost:8080`.
-- Existing `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MARKET_STREAM`, and `TWELVE_DATA_*` bindings remain server-side.
+- `ALLOW_FALLBACK_TRADING` — optional, `true` to allow trading on fallback quotes during private development. Defaults to false.
+- `DEV_FEED_SERVER_IDS` — comma-separated server allowlist for Exness quotes, candles, and ticks. Empty/unset fails closed. See `docs/dev-feed.md`.
+- `ALLOW_DEV_FEED`, `DEV_FEED_SECRET`, `DEV_FEED_ALLOWED_IPS`, `DEV_FEED_STALE_MS`, `DEV_FEED_RETENTION_BARS` — development feed configuration. See `docs/dev-feed.md`.
+- Existing `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MARKET_STREAM`, `TWELVE_DATA_*`, and `DEV_FEED_*` bindings remain server-side.
 
 Apply `supabase/migrations/20261026000000_terminal_api.sql` before deploying. It adds `terminal_idempotency` and the additive `modify` operation/return IDs to `apply_demo_operation`. `20261026010000_relax_plaintext_passwords.sql` makes the legacy plaintext columns nullable so the API can stop writing them. `20261026020000_drop_plaintext_passwords.sql` is intentionally newer and must not be applied until the terminal cutover gates pass.
 

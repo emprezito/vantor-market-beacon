@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -18,10 +18,12 @@ vi.mock("@/lib/fx.server", () => ({
 }));
 
 import { loadQuotes } from "@/lib/market-data.server";
+import { loadFxRate } from "@/lib/fx.server";
 import {
   closePosition,
   modifyPosition,
   openMarketOrder,
+  processAccount,
   snapshot,
   type TradingAccount,
 } from "@/lib/trading-service.server";
@@ -45,16 +47,28 @@ const account: TradingAccount = {
 function fakeDb(
   accountRow: Record<string, unknown> | null,
   positions: Record<string, unknown>[] = [],
+  pending: Record<string, unknown>[] = [],
 ) {
-  const chain = {
-    select: () => chain,
-    eq: () => chain,
-    is: () => chain,
-    order: async () => ({ data: positions, error: null }),
-    maybeSingle: async () => ({ data: accountRow, error: null }),
-  };
-  return { from: () => chain } as unknown as SupabaseClient<Database>;
+  return {
+    from(table: string) {
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        is: () => chain,
+        order: async () => ({
+          data: table === "positions" ? positions : table === "pending_orders" ? pending : [],
+          error: null,
+        }),
+        maybeSingle: async () => ({ data: accountRow, error: null }),
+      };
+      return chain;
+    },
+  } as unknown as SupabaseClient<Database>;
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("trading service FX conversion", () => {
   it("stores realized P/L in the account currency", async () => {
@@ -117,6 +131,39 @@ describe("trading service feed guards", () => {
     feed: "exness" as const,
     marketOpen: true,
   };
+  const fallbackQuote = {
+    symbol: "EURUSD",
+    bid: 1.101,
+    ask: 1.1012,
+    mid: 1.1011,
+    ts: Date.now(),
+    source: "live" as const,
+    feed: "twelve" as const,
+    feedFallback: true,
+  };
+  const accountRow = { balance: 100, status: "active", access_role: "trader", leverage: 100 };
+  const position = {
+    id: "55555555-5555-4555-8555-555555555555",
+    symbol: "EURUSD",
+    side: "buy",
+    lots: 0.01,
+    open_price: 1.1,
+    stop_loss: 1.2,
+    take_profit: null,
+    opened_at: "2026-10-27T00:00:00.000Z",
+    closed_at: null,
+  };
+  const pendingOrder = {
+    id: "66666666-6666-4666-8666-666666666666",
+    symbol: "EURUSD",
+    side: "buy",
+    lots: 0.01,
+    limit_price: 1.2,
+    stop_loss: null,
+    take_profit: null,
+    status: "pending",
+    created_at: "2026-10-27T00:00:00.000Z",
+  };
 
   it("rejects new market orders when the Exness quote is stale", async () => {
     vi.mocked(loadQuotes).mockResolvedValueOnce({ EURUSD: staleQuote });
@@ -160,5 +207,74 @@ describe("trading service feed guards", () => {
       ),
     ).rejects.toThrow("Market data is stale");
     expect(admin.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects new market orders when the quote is a fallback quote", async () => {
+    vi.mocked(loadQuotes).mockResolvedValueOnce({ EURUSD: fallbackQuote });
+    const admin = { rpc: vi.fn() } as unknown as SupabaseClient<Database>;
+
+    await expect(
+      openMarketOrder(fakeDb(accountRow), admin, account, {
+        symbol: "EURUSD",
+        side: "buy",
+        lots: 0.01,
+        stopLoss: null,
+        takeProfit: null,
+      }),
+    ).rejects.toThrow("Live prices are unavailable");
+    expect(admin.rpc).not.toHaveBeenCalled();
+  });
+
+  it("does not fill pending orders while the quote is a fallback quote", async () => {
+    vi.mocked(loadQuotes)
+      .mockResolvedValueOnce({ EURUSD: fallbackQuote })
+      .mockResolvedValueOnce({ EURUSD: fallbackQuote });
+    const admin = { rpc: vi.fn() } as unknown as SupabaseClient<Database>;
+
+    await processAccount(fakeDb(accountRow, [], [pendingOrder]), admin, account);
+
+    expect(admin.rpc).not.toHaveBeenCalled();
+  });
+
+  it("does not trigger SL/TP while the quote is a fallback quote", async () => {
+    vi.mocked(loadQuotes).mockResolvedValueOnce({ EURUSD: fallbackQuote });
+    const admin = { rpc: vi.fn() } as unknown as SupabaseClient<Database>;
+
+    await processAccount(fakeDb(accountRow, [position]), admin, account);
+
+    expect(admin.rpc).not.toHaveBeenCalled();
+  });
+
+  it("still fills pending orders on a live quote", async () => {
+    vi.mocked(loadFxRate).mockResolvedValueOnce(1);
+    const admin = {
+      rpc: vi.fn(async () => ({ data: {}, error: null })),
+    } as unknown as SupabaseClient<Database>;
+
+    await processAccount(fakeDb(accountRow, [], [pendingOrder]), admin, account);
+
+    expect(admin.rpc).toHaveBeenCalledWith(
+      "apply_demo_operation",
+      expect.objectContaining({ p_action: "fill_limit" }),
+    );
+  });
+
+  it("allows fallback trading only when ALLOW_FALLBACK_TRADING is enabled", async () => {
+    vi.stubEnv("ALLOW_FALLBACK_TRADING", "true");
+    vi.mocked(loadFxRate).mockResolvedValueOnce(1);
+    vi.mocked(loadQuotes).mockResolvedValueOnce({ EURUSD: fallbackQuote });
+    const admin = {
+      rpc: vi.fn(async () => ({ data: { position_id: "position-id" }, error: null })),
+    } as unknown as SupabaseClient<Database>;
+
+    await openMarketOrder(fakeDb(accountRow), admin, account, {
+      symbol: "EURUSD",
+      side: "buy",
+      lots: 0.01,
+      stopLoss: null,
+      takeProfit: null,
+    });
+
+    expect(admin.rpc).toHaveBeenCalled();
   });
 });

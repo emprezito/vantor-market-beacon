@@ -1,3 +1,5 @@
+import { FALLBACK_MARKET_MESSAGE } from "@/lib/market-data";
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -20,6 +22,9 @@ export function mapError(error: unknown): ApiError {
   }
   if (message === "Trading account not found") {
     return new ApiError(404, "account_not_found", message);
+  }
+  if (message === FALLBACK_MARKET_MESSAGE) {
+    return new ApiError(409, "fallback_market_data", message);
   }
   if (message.startsWith("Market data is stale")) {
     return new ApiError(409, "stale_market_data", message);

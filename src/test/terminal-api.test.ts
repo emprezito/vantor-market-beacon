@@ -25,6 +25,7 @@ vi.mock("@/lib/terminal-api/auth", async () => {
   const { ApiError } = await import("@/lib/terminal-api/errors");
   return {
     authenticateTerminalRequest: vi.fn(),
+    authenticateOptionalTerminalRequest: vi.fn(),
     authenticateStreamTicket: vi.fn(),
     assertTrader: (claims: { role: string }, account?: { access_role: string | null }) => {
       if (claims.role === "investor" || account?.access_role === "investor") {
@@ -36,7 +37,11 @@ vi.mock("@/lib/terminal-api/auth", async () => {
 
 import { authenticateTradingAccount, recordLoginFailure } from "@/lib/account-auth.server";
 import { loadCandles, loadQuotes } from "@/lib/market-data.server";
-import { authenticateStreamTicket, authenticateTerminalRequest } from "@/lib/terminal-api/auth";
+import {
+  authenticateOptionalTerminalRequest,
+  authenticateStreamTicket,
+  authenticateTerminalRequest,
+} from "@/lib/terminal-api/auth";
 import { handleTerminalApi } from "@/lib/terminal-api/router";
 import { terminalAdmin } from "@/lib/terminal-api/supabase";
 import {
@@ -189,6 +194,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(terminalAdmin).mockReturnValue(fakeAdmin());
   vi.mocked(authenticateTerminalRequest).mockResolvedValue({ account, claims });
+  vi.mocked(authenticateOptionalTerminalRequest).mockResolvedValue(null);
   vi.mocked(authenticateTradingAccount).mockResolvedValue({
     account: {
       id: accountId,
@@ -607,6 +613,25 @@ describe("terminal API", () => {
     );
     expect(response?.status).toBe(409);
     expect((await body(response))["error"]).toBe("stale_market_data");
+  });
+
+  it("returns 409 fallback_market_data when only fallback prices are available", async () => {
+    vi.mocked(openMarketOrder).mockRejectedValueOnce(new Error("Live prices are unavailable"));
+    const response = await handleTerminalApi(
+      jsonRequest("/orders", "POST", {
+        symbol: "EURUSD",
+        side: "buy",
+        lots: 0.01,
+        stopLoss: null,
+        takeProfit: null,
+      }),
+      env,
+    );
+    expect(response?.status).toBe(409);
+    expect(await body(response)).toEqual({
+      error: "fallback_market_data",
+      message: "Live prices are unavailable",
+    });
   });
 
   it("places a limit order", async () => {

@@ -20,6 +20,8 @@ export type MarketQuote = {
 
 export type QuoteMap = Record<string, MarketQuote>;
 
+export const FALLBACK_MARKET_MESSAGE = "Live prices are unavailable";
+
 export type ChartInterval =
   "1min" | "5min" | "15min" | "30min" | "1h" | "4h" | "1day" | "1week" | "1month";
 
@@ -119,6 +121,10 @@ export function quoteFor(quotes: QuoteMap | undefined, symbol: string, ts: numbe
 
 export function isStaleFeedQuote(quote: MarketQuote): boolean {
   return quote.feed === "exness" && (quote.source !== "live" || quote.marketOpen === false);
+}
+
+export function isFallbackQuote(quote: MarketQuote): boolean {
+  return quote.feedFallback === true;
 }
 
 export function syntheticCandles(

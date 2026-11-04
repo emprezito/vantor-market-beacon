@@ -50,6 +50,19 @@ export async function authenticateTerminalRequest(
   return { account, claims: claims as TerminalTokenClaims };
 }
 
+export async function authenticateOptionalTerminalRequest(
+  request: Request,
+  env: TerminalEnv,
+  admin: SupabaseClient<Database>,
+) {
+  const token = bearerToken(request);
+  if (!token) return null;
+  const claims = await verifyTerminalToken(token, tokenSecret(env));
+  if (!claims) throw invalidSession();
+  const account = await loadActiveAccount(admin, claims.accountId, claims.serverId, claims.epoch);
+  return { account, claims: claims as TerminalTokenClaims };
+}
+
 export async function authenticateStreamTicket(
   ticket: string,
   env: TerminalEnv,

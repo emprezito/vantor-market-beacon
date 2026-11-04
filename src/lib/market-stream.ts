@@ -2,6 +2,7 @@ import {
   BAR_PRUNE_MS,
   FEED_INTERNAL_HEADER,
   FEED_INTERNAL_VALUE,
+  FEED_SERVER_HEADER,
   MAX_MISSING_HISTORY_BARS,
   QUOTE_SNAPSHOT_MS,
   computeFeedQuoteStats,
@@ -22,6 +23,7 @@ import {
   type FeedSeriesStatus,
   type FeedStatus,
 } from "./market-feed";
+import { feedServerIsAllowed } from "./market-feed.server";
 import {
   CHART_INTERVALS,
   intervalMs,
@@ -48,6 +50,7 @@ const CLIENT_BY_PROVIDER = new Map<string, RealtimeSymbol>(
 type StreamEnv = {
   TWELVE_DATA_API_KEYS?: string;
   TWELVE_DATA_API_KEY?: string;
+  DEV_FEED_SERVER_IDS?: string;
   DEV_FEED_STALE_MS?: string;
   DEV_FEED_RETENTION_BARS?: string;
 };
@@ -130,7 +133,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export class MarketStream {
   private readonly state: StreamState;
   private readonly env: StreamEnv;
-  private readonly clients = new Set<WebSocket>();
+  private readonly clients = new Map<WebSocket, { serverId: string; allowed: boolean }>();
   private readonly latest = new Map<RealtimeSymbol, PriceTick>();
   private readonly quotes = new Map<string, MemoryQuote>();
   private readonly feedSymbols = new Set<string>();
@@ -171,11 +174,14 @@ export class MarketStream {
       return new Response("Too many realtime clients", { status: 503 });
     }
 
+    const serverId = request.headers.get(FEED_SERVER_HEADER) ?? "";
+    const allowed = feedServerIsAllowed(serverId, this.env);
+
     const pair = createSocketPair();
     const client = pair[0];
     const server = pair[1];
     server.accept();
-    this.clients.add(server);
+    this.clients.set(server, { serverId, allowed });
     server.addEventListener("close", () => {
       this.clients.delete(server);
       this.stopIfIdle();
@@ -186,17 +192,19 @@ export class MarketStream {
     });
 
     for (const tick of this.latest.values()) this.sendTo(server, { type: "price", ...tick });
-    for (const quote of this.quotes.values()) {
-      this.sendTo(server, {
-        type: "price",
-        symbol: quote.symbol,
-        price: quote.mid,
-        bid: quote.bid,
-        ask: quote.ask,
-        ts: quote.ts,
-        feed: "exness",
-        marketOpen: quote.marketOpen,
-      });
+    if (allowed) {
+      for (const quote of this.quotes.values()) {
+        this.sendTo(server, {
+          type: "price",
+          symbol: quote.symbol,
+          price: quote.mid,
+          bid: quote.bid,
+          ask: quote.ask,
+          ts: quote.ts,
+          feed: "exness",
+          marketOpen: quote.marketOpen,
+        });
+      }
     }
     await this.ensureUpstream();
 
@@ -401,16 +409,19 @@ export class MarketStream {
     if (acceptedQuotes > 0 || acceptedBars > 0) this.lastIngestAt = now;
 
     for (const quote of broadcast) {
-      this.broadcast({
-        type: "price",
-        symbol: quote.symbol,
-        price: quote.mid,
-        bid: quote.bid,
-        ask: quote.ask,
-        ts: quote.ts,
-        feed: "exness",
-        marketOpen: quote.marketOpen,
-      });
+      this.broadcast(
+        {
+          type: "price",
+          symbol: quote.symbol,
+          price: quote.mid,
+          bid: quote.bid,
+          ask: quote.ask,
+          ts: quote.ts,
+          feed: "exness",
+          marketOpen: quote.marketOpen,
+        },
+        true,
+      );
     }
 
     this.snapshotQuotes(now);
@@ -914,9 +925,10 @@ export class MarketStream {
     }
   }
 
-  private broadcast(message: unknown): void {
+  private broadcast(message: unknown, exnessOnly = false): void {
     const payload = JSON.stringify(message);
-    for (const client of Array.from(this.clients)) {
+    for (const [client, access] of Array.from(this.clients)) {
+      if (exnessOnly && !access.allowed) continue;
       try {
         client.send(payload);
       } catch {

@@ -29,8 +29,14 @@ export type FeedRuntimeEnv = {
   ALLOW_DEV_FEED?: string;
   DEV_FEED_SECRET?: string;
   DEV_FEED_ALLOWED_IPS?: string;
+  DEV_FEED_SERVER_IDS?: string;
   DEV_FEED_STALE_MS?: string;
   MARKET_STREAM?: FeedNamespace;
+};
+
+export type FeedAccessOptions = {
+  serverId?: string | null | undefined;
+  env?: FeedRuntimeEnv;
 };
 
 type FeedGlobals = typeof globalThis & {
@@ -75,6 +81,27 @@ export function feedEnabled(env: FeedRuntimeEnv | undefined = feedEnv()): boolea
   return flag === "true";
 }
 
+export function feedServerIds(
+  env: FeedRuntimeEnv | undefined = feedEnv(),
+): Set<string> {
+  const raw = env?.DEV_FEED_SERVER_IDS ?? process.env["DEV_FEED_SERVER_IDS"];
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+export function feedServerIsAllowed(
+  serverId: string | null | undefined,
+  env: FeedRuntimeEnv | undefined = feedEnv(),
+): boolean {
+  if (!serverId) return false;
+  return feedServerIds(env).has(serverId.trim().toLowerCase());
+}
+
 function feedStub(env: FeedRuntimeEnv | undefined = feedEnv()): FeedStub | null {
   const namespace = env?.MARKET_STREAM;
   if (!namespace) return null;
@@ -106,33 +133,39 @@ export async function ingestFeedPayload(
 export type FeedQuotesResult = {
   quotes: QuoteMap;
   enabled: boolean;
+  allowed: boolean;
   available: boolean;
   stale: boolean;
 };
 
 export async function loadFeedQuotesResult(
   symbols: string[],
-  env: FeedRuntimeEnv | undefined = feedEnv(),
+  options: FeedAccessOptions = {},
 ): Promise<FeedQuotesResult> {
+  const env = options.env ?? feedEnv();
   if (!feedEnabled(env)) {
-    return { quotes: {}, enabled: false, available: false, stale: true };
+    return { quotes: {}, enabled: false, allowed: false, available: false, stale: true };
+  }
+  if (!feedServerIsAllowed(options.serverId, env)) {
+    return { quotes: {}, enabled: true, allowed: false, available: false, stale: true };
   }
   const stub = feedStub(env);
-  if (!stub) return { quotes: {}, enabled: true, available: false, stale: true };
+  if (!stub) return { quotes: {}, enabled: true, allowed: true, available: false, stale: true };
 
   const unique = Array.from(new Set(symbols)).filter(isInstrument);
   if (unique.length === 0) {
-    return { quotes: {}, enabled: true, available: true, stale: false };
+    return { quotes: {}, enabled: true, allowed: true, available: true, stale: false };
   }
 
   const url = new URL("/internal/quotes", FEED_INTERNAL_BASE_URL);
   url.searchParams.set("symbols", unique.join(","));
   const response = await stub.fetch(internalRequest(url.pathname + url.search));
-  if (!response.ok) return { quotes: {}, enabled: true, available: false, stale: true };
+  if (!response.ok)
+    return { quotes: {}, enabled: true, allowed: true, available: false, stale: true };
 
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!isRecord(payload) || !Array.isArray(payload["quotes"])) {
-    return { quotes: {}, enabled: true, available: false, stale: true };
+    return { quotes: {}, enabled: true, allowed: true, available: false, stale: true };
   }
 
   const result: QuoteMap = {};
@@ -169,6 +202,7 @@ export async function loadFeedQuotesResult(
   return {
     quotes: result,
     enabled: true,
+    allowed: true,
     available: unique.every((symbol) => result[symbol] != null),
     stale: payload["stale"] === true || anyStale,
   };
@@ -176,18 +210,20 @@ export async function loadFeedQuotesResult(
 
 export async function loadFeedQuotes(
   symbols: string[],
-  env: FeedRuntimeEnv | undefined = feedEnv(),
+  options: FeedAccessOptions = {},
 ): Promise<QuoteMap> {
-  return (await loadFeedQuotesResult(symbols, env)).quotes;
+  return (await loadFeedQuotesResult(symbols, options)).quotes;
 }
 
 export async function loadFeedCandles(
   symbol: string,
   interval: ChartInterval,
   points: number,
-  env: FeedRuntimeEnv | undefined = feedEnv(),
+  options: FeedAccessOptions = {},
 ): Promise<MarketCandles | null> {
+  const env = options.env ?? feedEnv();
   if (!feedEnabled(env)) return null;
+  if (!feedServerIsAllowed(options.serverId, env)) return null;
   if (!isInstrument(symbol) || !isChartInterval(interval)) return null;
   const stub = feedStub(env);
   if (!stub) return null;

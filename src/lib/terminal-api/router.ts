@@ -6,7 +6,7 @@ import {
 } from "@/lib/account-auth.server";
 import { TRADING_SERVER_SELECT } from "@/lib/account-options";
 import { loadCandles, loadQuotes } from "@/lib/market-data.server";
-import { MARKET_FEED_INSTANCE } from "@/lib/market-feed";
+import { FEED_SERVER_HEADER, MARKET_FEED_INSTANCE } from "@/lib/market-feed";
 import { isChartInterval, isInstrument } from "@/lib/market-data";
 import {
   cancelPendingOrder,
@@ -18,7 +18,12 @@ import {
   TRADING_ACCOUNT_SELECT,
   type TradingAccount,
 } from "@/lib/trading-service.server";
-import { authenticateStreamTicket, authenticateTerminalRequest, assertTrader } from "./auth";
+import {
+  authenticateOptionalTerminalRequest,
+  authenticateStreamTicket,
+  authenticateTerminalRequest,
+  assertTrader,
+} from "./auth";
 import { accountDto, accountViewDto } from "./dto";
 import { ApiError, mapError } from "./errors";
 import { corsFor, json, preflight, readJson } from "./http";
@@ -254,9 +259,11 @@ async function account(request: Request, env: TerminalEnv, cors: CorsContext) {
 
 async function quotes(request: Request, env: TerminalEnv, cors: CorsContext) {
   const symbols = parseSymbols(new URL(request.url));
+  const admin = terminalAdmin(env);
+  const session = await authenticateOptionalTerminalRequest(request, env, admin);
   let result;
   try {
-    result = await loadQuotes(symbols);
+    result = await loadQuotes(symbols, { serverId: session?.account.server_id ?? null });
   } catch {
     throw new ApiError(503, "service_unavailable", "Could not load market quotes");
   }
@@ -287,7 +294,9 @@ async function candles(request: Request, env: TerminalEnv, cors: CorsContext) {
   const { symbol, interval, points } = parseCandles(new URL(request.url));
   let result;
   try {
-    result = await loadCandles(symbol, interval, points);
+    result = await loadCandles(symbol, interval, points, {
+      serverId: tradingAccount.server_id,
+    });
   } catch {
     throw new ApiError(503, "service_unavailable", "Could not load market candles");
   }
@@ -456,12 +465,15 @@ async function stream(request: Request, env: TerminalEnv, cors: CorsContext, ins
   const ticket = new URL(request.url).searchParams.get("ticket");
   if (!ticket) throw new ApiError(401, "unauthorized", "Missing stream ticket");
   const admin = terminalAdmin(env);
-  await authenticateStreamTicket(ticket, env, admin);
+  const { claims } = await authenticateStreamTicket(ticket, env, admin);
   const namespace = env.MARKET_STREAM;
   if (!namespace)
     throw new ApiError(503, "service_unavailable", "Realtime streaming is not available");
+  const headers = new Headers(request.headers);
+  headers.set(FEED_SERVER_HEADER, claims.serverId);
+  const forwarded = new Request(request, { headers });
   const stub = namespace.get(namespace.idFromName(instance));
-  return stub.fetch(request);
+  return stub.fetch(forwarded);
 }
 
 export async function handleTerminalApi(

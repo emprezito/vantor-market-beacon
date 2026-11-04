@@ -4,7 +4,7 @@ import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { handleDevFeedRequest } from "./lib/dev-feed.server";
 import { handleFeedStatusRequest } from "./lib/feed-status.server";
-import { MARKET_FEED_INSTANCE } from "./lib/market-feed";
+import { FEED_SERVER_HEADER, MARKET_FEED_INSTANCE } from "./lib/market-feed";
 import { verifyRealtimeTicket } from "./lib/realtime-ticket";
 import { handleTerminalApi } from "./lib/terminal-api/router";
 
@@ -32,8 +32,10 @@ type WorkerEnv = {
   ALLOW_DEV_FEED?: string;
   DEV_FEED_SECRET?: string;
   DEV_FEED_ALLOWED_IPS?: string;
+  DEV_FEED_SERVER_IDS?: string;
   DEV_FEED_STALE_MS?: string;
   DEV_FEED_RETENTION_BARS?: string;
+  ALLOW_FALLBACK_TRADING?: string;
 };
 
 type RealtimeGlobals = typeof globalThis & {
@@ -68,8 +70,9 @@ async function handleRealtimeRequest(request: Request, env: WorkerEnv): Promise<
   const ticket = url.searchParams.get("ticket");
   if (!ticket) return new Response("Missing realtime ticket", { status: 401 });
 
+  let claims;
   try {
-    const claims = await verifyRealtimeTicket(ticket, secret);
+    claims = await verifyRealtimeTicket(ticket, secret);
     if (!claims) return new Response("Invalid realtime ticket", { status: 401 });
   } catch {
     return new Response("Invalid realtime ticket", { status: 401 });
@@ -78,8 +81,11 @@ async function handleRealtimeRequest(request: Request, env: WorkerEnv): Promise<
   const namespace = env.MARKET_STREAM;
   if (!namespace) return new Response("Realtime streaming is not available", { status: 503 });
 
+  const headers = new Headers(request.headers);
+  headers.set(FEED_SERVER_HEADER, claims.serverId);
+  const forwarded = new Request(request, { headers });
   const stub = namespace.get(namespace.idFromName(MARKET_FEED_INSTANCE));
-  return stub.fetch(request);
+  return stub.fetch(forwarded);
 }
 
 // h3 swallows in-handler throws into a normal 500 Response with body
