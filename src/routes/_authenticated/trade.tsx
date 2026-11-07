@@ -66,6 +66,7 @@ function Trade() {
     quotes: liveQuotes,
     isLoading: quotesLoading,
     realtime: realtimeStatus,
+    marketDatafeed: marketDatafeedStatus,
   } = useMarketQuotes(feedSymbols, activeAccount?.id ?? null);
   const {
     candles,
@@ -145,7 +146,10 @@ function Trade() {
   const feedBlocked = isStaleFeedQuote(q);
   const fallbackBlocked = isFallbackQuote(q);
   const entriesBlocked = feedBlocked || fallbackBlocked;
-  const streaming = q.feed !== "exness" && isRealtimeSymbol(symbol) && realtimeStatus === "live";
+  const streaming =
+    q.feed === "marketdatafeed"
+      ? marketDatafeedStatus === "live"
+      : q.feed !== "exness" && isRealtimeSymbol(symbol) && realtimeStatus === "live";
   const feedLabel =
     q.feed === "exness"
       ? q.marketOpen === false
@@ -153,19 +157,29 @@ function Trade() {
         : feedBlocked
           ? "Dev feed stale"
           : "Dev feed �� Exness MT5"
-      : q.feedFallback
-        ? q.source === "simulated"
-          ? "Market data unavailable"
-          : "Twelve fallback"
-        : streaming
+      : q.feed === "marketdatafeed"
+        ? marketDatafeedStatus === "live"
           ? "Streaming"
-          : quotesLoading && q.source === "simulated"
-            ? "Connecting"
-            : q.source === "live"
-              ? "Live feed"
-              : q.source === "cached"
-                ? "Cached feed"
-                : "Simulated feed";
+          : marketDatafeedStatus === "stale"
+            ? "VPS stale"
+            : marketDatafeedStatus === "error"
+              ? "VPS feed error"
+              : marketDatafeedStatus === "disconnected"
+                ? "VPS offline"
+                : "VPS connecting"
+        : q.feedFallback
+          ? q.source === "simulated"
+            ? "Market data unavailable"
+            : "Twelve fallback"
+          : streaming
+            ? "Streaming"
+            : quotesLoading && q.source === "simulated"
+              ? "Connecting"
+              : q.source === "live"
+                ? "Live feed"
+                : q.source === "cached"
+                  ? "Cached feed"
+                  : "Simulated feed";
   const feedTone =
     q.feed === "exness"
       ? q.marketOpen === false
@@ -173,15 +187,23 @@ function Trade() {
         : feedBlocked
           ? "bg-amber-500/15 text-amber-700"
           : "bg-accent/15 text-accent"
-      : q.feedFallback
-        ? q.source === "simulated"
-          ? "bg-destructive/15 text-destructive"
-          : "bg-amber-500/15 text-amber-700"
-        : q.source === "live"
+      : q.feed === "marketdatafeed"
+        ? marketDatafeedStatus === "live"
           ? "bg-accent/15 text-accent"
-          : q.source === "cached"
-            ? "bg-muted text-muted-foreground"
-            : "bg-amber-500/15 text-amber-700";
+          : marketDatafeedStatus === "error"
+            ? "bg-destructive/15 text-destructive"
+            : marketDatafeedStatus === "disconnected"
+              ? "bg-muted text-muted-foreground"
+              : "bg-amber-500/15 text-amber-700"
+        : q.feedFallback
+          ? q.source === "simulated"
+            ? "bg-destructive/15 text-destructive"
+            : "bg-amber-500/15 text-amber-700"
+          : q.source === "live"
+            ? "bg-accent/15 text-accent"
+            : q.source === "cached"
+              ? "bg-muted text-muted-foreground"
+              : "bg-amber-500/15 text-amber-700";
   const money = (n: number) => formatMoney(n, currency);
   const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
   const limitValid =

@@ -1,7 +1,7 @@
 import { INSTRUMENTS, getInstrument, midPrice, quote } from "./market";
 
 export type FeedSource = "live" | "cached" | "simulated";
-export type MarketFeed = "twelve" | "exness";
+export type MarketFeed = "twelve" | "exness" | "marketdatafeed";
 
 export type MarketQuote = {
   symbol: string;

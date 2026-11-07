@@ -24,6 +24,8 @@ type DurableObjectNamespace = {
 type WorkerEnv = {
   MARKET_STREAM?: DurableObjectNamespace;
   REALTIME_TICKET_SECRET?: string;
+  MARKETDATA_TICKET_SECRET?: string;
+  MARKETDATA_SERVER_IDS?: string;
   TERMINAL_TOKEN_SECRET?: string;
   ALLOWED_ORIGINS?: string;
   ALLOW_DEV_ORIGINS?: string;

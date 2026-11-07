@@ -104,6 +104,11 @@ market data, live P/L, margin, stop loss and take profit.
   relay, plus server-scoped Exness ticks. The browser connects through an
   authenticated, short-lived account/server-bound ticket and all clients share
   one upstream stream.
+- Allowlisted accounts can receive `XAU/USD` directly from the MarketDatafeed VPS
+  over `wss://data.fundedng.fun/ws/v1/market`. The Worker issues a separate
+  120-second HMAC ticket bound to the user, account, server, `XAUUSDM`, and
+  `tick`; the VPS verifies it before subscribing. Exness accounts stay on the
+  Exness feed, and the DO relay still supplies `BTC/USD`.
 - Stop loss / take profit are validated when the order is placed and evaluated
   server-side on every account poll (every 5 seconds). Due limit orders are
   evaluated in the same poll.
@@ -616,6 +621,8 @@ credentials.
 │  │  ├─ realtime-ticket.ts      # HMAC realtime ticket signing/verification
 │  │  ├─ realtime.functions.ts   # Authenticated realtime ticket server function
 │  │  ├─ realtime-symbols.ts     # Realtime client/provider symbol map
+│  │  ├─ marketdatafeed.ts       # Direct VPS symbols, tick validation and quotes
+│  │  ├─ marketdatafeed-ticket.ts # Direct VPS ticket signing, claims and allowlist
 │  │  ├─ market-stream.ts        # MarketStream Durable Object WebSocket relay
 │  │  └─ error-*.ts              # SSR error capture/rendering helpers
 │  ├─ integrations/
@@ -626,6 +633,7 @@ credentials.
 │  │  ├─ use-active-account.ts   # localStorage account selection
 │  │  ├─ use-market-data.ts      # Quote/candle polling hooks
 │  │  ├─ use-realtime-quotes.ts  # Authenticated multi-symbol WebSocket quote hook
+│  │  ├─ use-marketdatafeed-quotes.ts # Direct VPS WebSocket quote hook
 │  │  ├─ use-watchlist.ts        # localStorage instrument watchlist
 │  │  └─ use-session.ts          # Session and clock hooks
 │  ├─ components/ui/             # shadcn-style component library
@@ -683,6 +691,8 @@ in Cloudflare secrets.
 | `TWELVE_DATA_API_KEYS`          | server only           | Comma-separated market data key pool; rotated round-robin and on 429                    |
 | `TWELVE_DATA_API_KEY`           | server only           | Single-key fallback; merged with the pool and de-duplicated                             |
 | `REALTIME_TICKET_SECRET`        | server only           | HMAC secret for short-lived realtime WebSocket tickets; required for realtime streaming |
+| `MARKETDATA_TICKET_SECRET`      | server only           | HMAC secret for direct MarketDatafeed VPS tickets; required for VPS XAU/USD streaming   |
+| `MARKETDATA_SERVER_IDS`         | server only           | Comma-separated server ids allowed to receive MarketDatafeed VPS quotes; fails closed   |
 | `TERMINAL_TOKEN_SECRET`         | server only           | HMAC secret for terminal bearer tokens; do not reuse another secret                     |
 | `ALLOWED_ORIGINS`               | server only, optional | Comma-separated terminal CORS allowlist; defaults are built in                           |
 | `ALLOW_DEV_ORIGINS`             | server only, optional | `true` adds `http://localhost:8080` to terminal CORS                                     |
@@ -787,6 +797,9 @@ Vitest with jsdom covers the pure logic and routing:
 | `src/test/market-data.test.ts`          | Provider symbol coverage, spread derivation, simulated fallback, synthetic OHLC candles, quote merging             |
 | `src/test/market-data-rotation.test.ts` | Key-pool rotation, 429 cooldown, all-keys-limited fallback                                                         |
 | `src/test/realtime-ticket.test.ts`      | Realtime ticket signing, tamper/wrong-secret/expiry rejection                                                      |
+| `src/test/marketdatafeed-ticket.test.ts` | MarketDatafeed ticket scope, tamper/wrong-secret/expiry rejection and server allowlist                            |
+| `src/test/marketdatafeed.test.ts`       | VPS symbol mapping, strict tick validation and live quote construction                                             |
+| `src/test/use-marketdatafeed-quotes.test.tsx` | VPS ticket fetch, subscription, stale drop, reconnect and account cleanup                                    |
 | `src/test/realtime-symbols.test.ts`     | Realtime client/provider symbol coverage                                                                           |
 | `src/test/trading-validation.test.ts`   | Lot limits, limit/stop-price validation, fund limits                                                               |
 | `src/test/account-options.test.ts`      | Account types/currencies/leverage, balance precision, nickname rules, password length                              |
@@ -819,17 +832,23 @@ bunx wrangler deploy --keep-vars
 
 - Public configuration is embedded in `wrangler.jsonc` (`vars`). Dashboard-only
   variables (`ALLOW_DEV_FEED`, `DEV_FEED_*`, `ALLOW_FALLBACK_TRADING`,
-  `ALLOWED_ORIGINS`, `ALLOW_DEV_ORIGINS`) require `--keep-vars`; a plain
-  `wrangler deploy` can remove them.
+  `ALLOWED_ORIGINS`, `ALLOW_DEV_ORIGINS`, `MARKETDATA_SERVER_IDS`) require
+  `--keep-vars`; a plain `wrangler deploy` can remove them.
 - Put server secrets in Worker secrets:
 
   ```sh
   bunx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
   bunx wrangler secret put TWELVE_DATA_API_KEY      # optional: enables live quotes
   bunx wrangler secret put REALTIME_TICKET_SECRET   # required for realtime streaming
+  bunx wrangler secret put MARKETDATA_TICKET_SECRET # required for direct VPS XAU/USD
   bunx wrangler secret put TERMINAL_TOKEN_SECRET    # required for the terminal API
   bunx wrangler secret put DEV_FEED_SECRET          # required for dev feed ingest
   ```
+
+- The MarketDatafeed VPS must use the same `MARKETDATA_TICKET_SECRET`, list the
+  allowed Worker origins in `MARKETDATA_ALLOWED_ORIGINS`, and keep the same
+  `MARKETDATA_SERVER_IDS` allowlist. Missing VPS configuration rejects ticket
+  connections; the terminal then falls back to REST/cached/simulated quotes.
 
 - `wrangler.jsonc` declares the `MARKET_STREAM` Durable Object binding and its
   `v2` SQLite migration. `exports.cloudflare.ts` re-exports `MarketStream` so Nitro
