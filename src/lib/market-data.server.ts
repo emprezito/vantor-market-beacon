@@ -1,10 +1,18 @@
+import { MERIDIAN_TIMEFRAMES, marketQuoteFromMeridian, type MeridianCandle } from "./meridian";
+import {
+  fetchMeridianCandles,
+  fetchMeridianQuotes,
+  loadMeridianCatalog,
+  meridianProviderSymbols,
+  resetMeridianCache,
+  type MeridianError,
+} from "./meridian.server";
+import { findInstrument } from "./market";
 import {
   isChartInterval,
   isInstrument,
-  PROVIDER_SYMBOLS,
   syntheticCandles,
   syntheticQuote,
-  withSpread,
   type ChartInterval,
   type FeedSource,
   type MarketCandle,
@@ -12,130 +20,28 @@ import {
   type MarketQuote,
   type QuoteMap,
 } from "./market-data";
-import {
-  feedEnabled,
-  feedServerIsAllowed,
-  loadFeedCandles,
-  loadFeedQuotesResult,
-  type FeedQuotesResult,
-} from "./market-feed.server";
 
-const API_URL = "https://api.twelvedata.com";
-const DEFAULT_QUOTE_TTL_MS = 60_000;
+const DEFAULT_QUOTE_TTL_MS = 5_000;
 const DEFAULT_FX_RATE_TTL_MS = 15 * 60_000;
-const PROVIDER_FAILURE_COOLDOWN_MS = 60_000;
-const PROVIDER_PLAN_COOLDOWN_MS = 15 * 60_000;
-
-type TwelveError = {
-  status?: string;
-  code?: number;
-  message?: string;
-};
-
-type PriceResponse = TwelveError & {
-  price?: string;
-};
-
-type TimeSeriesValue = {
-  datetime?: string;
-  open?: string;
-  high?: string;
-  low?: string;
-  close?: string;
-  volume?: string;
-};
-
-type TimeSeriesResponse = TwelveError & {
-  values?: TimeSeriesValue[];
-};
-
-type KeyState = {
-  value: string;
-  limitedUntil: number;
-};
-
-class ProviderError extends Error {
-  retryAfterMs: number;
-
-  constructor(message: string, retryAfterMs = PROVIDER_FAILURE_COOLDOWN_MS) {
-    super(message);
-    this.name = "ProviderError";
-    this.retryAfterMs = retryAfterMs;
-  }
-}
-
-function providerRetryMs(payload: TwelveError): number {
-  if (payload.code === 404 || /available starting with|upgrade|plan/i.test(payload.message ?? "")) {
-    return PROVIDER_PLAN_COOLDOWN_MS;
-  }
-  return PROVIDER_FAILURE_COOLDOWN_MS;
-}
-
-function failureRetryMs(error: unknown): number {
-  return error instanceof ProviderError ? error.retryAfterMs : PROVIDER_FAILURE_COOLDOWN_MS;
-}
+const DEFAULT_RETRY_MS = 15_000;
 
 const quoteCache = new Map<string, { quote: MarketQuote; fetchedAt: number }>();
 const candleCache = new Map<string, { series: MarketCandles; fetchedAt: number }>();
 const fxRateCache = new Map<string, { rate: number; fetchedAt: number }>();
-const inFlightQuotes = new Map<string, Promise<MarketQuote>>();
-const inFlightCandles = new Map<string, Promise<MarketCandles>>();
-const inFlightFxRates = new Map<string, Promise<number>>();
 const quoteRetryAfter = new Map<string, number>();
 const candleRetryAfter = new Map<string, number>();
 const fxRateRetryAfter = new Map<string, number>();
-let keys: KeyState[] | null = null;
-let keyCursor = 0;
-
-function configuredKeys(): string[] {
-  const raw = [process.env["TWELVE_DATA_API_KEYS"], process.env["TWELVE_DATA_API_KEY"]]
-    .filter((value): value is string => Boolean(value))
-    .join(",");
-  return Array.from(
-    new Set(
-      raw
-        .split(/[\s,;]+/)
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-function keyStates(): KeyState[] {
-  if (!keys) keys = configuredKeys().map((value) => ({ value, limitedUntil: 0 }));
-  return keys;
-}
-
-function takeKey(now = Date.now()): KeyState | null {
-  const states = keyStates();
-  if (states.length === 0) return null;
-  for (let offset = 0; offset < states.length; offset++) {
-    const index = (keyCursor + offset) % states.length;
-    const state = states[index]!;
-    if (state.limitedUntil > now) continue;
-    keyCursor = (index + 1) % states.length;
-    return state;
-  }
-  return null;
-}
-
-function rateLimitResetAt(message: string | undefined): number {
-  const now = Date.now();
-  if (message && /daily|current day|per day/i.test(message)) {
-    const nextDay = new Date(now);
-    nextDay.setUTCHours(24, 0, 0, 0);
-    return nextDay.getTime() + 1_000;
-  }
-  return now + (60_000 - (now % 60_000)) + 1_000;
-}
+const inFlightQuoteBatches = new Map<string, Promise<QuoteMap>>();
+const inFlightCandles = new Map<string, Promise<MarketCandles>>();
+const inFlightFxRates = new Map<string, Promise<number>>();
 
 function quoteTtlMs(): number {
-  const raw = Number(process.env["MARKET_QUOTE_TTL_MS"]);
+  const raw = Number(process.env["MERIDIAN_QUOTE_TTL_MS"] ?? process.env["MARKET_QUOTE_TTL_MS"]);
   return Number.isFinite(raw) && raw >= 1_000 ? raw : DEFAULT_QUOTE_TTL_MS;
 }
 
 function candleTtlMs(interval: ChartInterval): number {
-  const raw = Number(process.env["MARKET_CANDLE_TTL_MS"]);
+  const raw = Number(process.env["MERIDIAN_CANDLE_TTL_MS"] ?? process.env["MARKET_CANDLE_TTL_MS"]);
   if (Number.isFinite(raw) && raw >= 1_000) return raw;
   if (interval === "1min") return 60_000;
   if (interval === "5min") return 120_000;
@@ -148,184 +54,118 @@ function candleTtlMs(interval: ChartInterval): number {
   return 6 * 60 * 60_000;
 }
 
-function providerMessage(payload: TwelveError): string {
-  return payload.message || `Twelve Data request failed${payload.code ? ` (${payload.code})` : ""}`;
-}
-
-async function fetchTwelve<T extends TwelveError>(
-  path: string,
-  params: Record<string, string>,
-): Promise<T | null> {
-  const states = keyStates();
-  if (states.length === 0) return null;
-
-  const url = new URL(`${API_URL}${path}`);
-  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
-
-  for (let attempt = 0; attempt < states.length; attempt++) {
-    const state = takeKey();
-    if (!state) throw new Error("Market data rate limit reached");
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8_000);
-    try {
-      const response = await fetch(url, {
-        headers: { Accept: "application/json", Authorization: `apikey ${state.value}` },
-        signal: controller.signal,
-      });
-      const payload = (await response.json().catch(() => ({}))) as T;
-
-      if (response.status === 429 || payload.code === 429) {
-        state.limitedUntil = rateLimitResetAt(payload.message);
-        continue;
-      }
-      if (!response.ok || payload.status === "error") {
-        throw new ProviderError(providerMessage(payload), providerRetryMs(payload));
-      }
-      return payload;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw new Error("Market data rate limit reached");
-}
-
-async function fetchLiveQuote(symbol: string): Promise<MarketQuote> {
-  const providerSymbol = PROVIDER_SYMBOLS[symbol];
-  if (!providerSymbol) throw new Error(`No market data mapping for ${symbol}`);
-
-  const payload = await fetchTwelve<PriceResponse>("/price", { symbol: providerSymbol });
-  if (!payload) throw new Error("Market data key is not configured");
-
-  const mid = Number(payload.price);
-  if (!Number.isFinite(mid) || mid <= 0) throw new Error(`Invalid market price for ${symbol}`);
-
-  return withSpread(symbol, mid, Date.now(), "live");
-}
-
-async function loadQuote(symbol: string): Promise<MarketQuote> {
-  if (!PROVIDER_SYMBOLS[symbol]) return syntheticQuote(symbol, Date.now());
-
-  const cached = quoteCache.get(symbol);
-  const now = Date.now();
-  if (cached && now - cached.fetchedAt < quoteTtlMs()) {
-    return { ...cached.quote, source: "live" };
-  }
-
-  const retryAfter = quoteRetryAfter.get(symbol);
-  if (retryAfter && now < retryAfter) {
-    if (cached) return { ...cached.quote, source: "cached" as FeedSource };
-    return syntheticQuote(symbol, now);
-  }
-
-  const pending = inFlightQuotes.get(symbol);
-  if (pending) return pending;
-
-  const request = fetchLiveQuote(symbol)
-    .then((quote) => {
-      quoteRetryAfter.delete(symbol);
-      quoteCache.set(symbol, { quote, fetchedAt: Date.now() });
-      return quote;
-    })
-    .catch((error) => {
-      quoteRetryAfter.set(symbol, Date.now() + failureRetryMs(error));
-      if (cached) return { ...cached.quote, source: "cached" as FeedSource };
-      return syntheticQuote(symbol, Date.now());
-    })
-    .finally(() => inFlightQuotes.delete(symbol));
-
-  inFlightQuotes.set(symbol, request);
-  return request;
-}
-
-export async function loadQuotes(
-  symbols: string[],
-  options: { serverId?: string | null } = {},
-): Promise<QuoteMap> {
-  const unique = Array.from(new Set(symbols)).filter(isInstrument);
-  const configured = feedEnabled();
-  const feed: FeedQuotesResult = await loadFeedQuotesResult(unique, {
-    serverId: options.serverId,
-  }).catch(() => ({
-    quotes: {},
-    enabled: configured,
-    allowed: feedServerIsAllowed(options.serverId),
-    available: false,
-    stale: true,
-  }));
-  const fallback = feed.allowed && (!feed.available || feed.stale);
-  const missing = unique.filter((symbol) => !feed.quotes[symbol]);
-  const quotes = await Promise.all(missing.map(loadQuote));
-  return {
-    ...feed.quotes,
-    ...Object.fromEntries(
-      quotes.map((quote) => [quote.symbol, fallback ? { ...quote, feedFallback: true } : quote]),
-    ),
-  };
-}
-
 function fxRateTtlMs(): number {
   const raw = Number(process.env["MARKET_FX_RATE_TTL_MS"]);
   return Number.isFinite(raw) && raw >= 1_000 ? raw : DEFAULT_FX_RATE_TTL_MS;
 }
 
-async function fetchProviderRate(pair: string): Promise<number> {
-  const payload = await fetchTwelve<PriceResponse>("/price", { symbol: pair });
-  if (!payload) throw new Error("Market data key is not configured");
-  const rate = Number(payload.price);
-  if (!Number.isFinite(rate) || rate <= 0) throw new Error(`Invalid market rate for ${pair}`);
-  return rate;
+function retryMs(error: unknown): number {
+  const value = (error as MeridianError | undefined)?.retryAfterMs;
+  return typeof value === "number" && value > 0 ? value : DEFAULT_RETRY_MS;
 }
 
-export async function loadProviderRate(pair: string): Promise<number> {
-  const key = pair.trim().toUpperCase();
-  if (!key) throw new Error("Market rate pair is required");
+function fallbackQuote(symbol: string, now: number): MarketQuote {
+  if (findInstrument(symbol)?.synthetic === false) {
+    return {
+      symbol,
+      bid: 0,
+      ask: 0,
+      mid: 0,
+      ts: now,
+      source: "simulated",
+      feed: "meridian",
+      feedFallback: true,
+    };
+  }
+  return { ...syntheticQuote(symbol, now), feedFallback: true };
+}
 
-  const cached = fxRateCache.get(key);
+function cachedQuote(symbol: string): MarketQuote | null {
+  const cached = quoteCache.get(symbol);
+  return cached ? { ...cached.quote, source: "cached" } : null;
+}
+
+async function fetchQuoteBatch(symbols: string[]): Promise<QuoteMap> {
+  const providerSymbols = await meridianProviderSymbols(symbols);
+  const canonical = Array.from(new Set(providerSymbols.values())).sort();
+  if (canonical.length === 0) return {};
+
+  const quotes = await fetchMeridianQuotes(canonical);
+  const byProvider = new Map(quotes.map((quote) => [quote.symbol, quote]));
   const now = Date.now();
-  if (cached && now - cached.fetchedAt < fxRateTtlMs()) return cached.rate;
+  const result: QuoteMap = {};
+  for (const [internal, provider] of providerSymbols) {
+    const raw = byProvider.get(provider);
+    if (!raw) continue;
+    const quote = marketQuoteFromMeridian(raw, internal);
+    quoteCache.set(internal, { quote, fetchedAt: now });
+    quoteRetryAfter.delete(internal);
+    result[internal] = quote;
+  }
+  return result;
+}
 
-  const retryAfter = fxRateRetryAfter.get(key);
-  if (retryAfter && now < retryAfter) {
-    if (cached) return cached.rate;
-    throw new Error(`Market rate unavailable for ${pair}`);
+export async function loadQuotes(
+  symbols: string[],
+  _options: { serverId?: string | null } = {},
+): Promise<QuoteMap> {
+  await loadMeridianCatalog().catch(() => null);
+  const unique = Array.from(new Set(symbols)).filter(isInstrument);
+  if (unique.length === 0) return {};
+
+  const now = Date.now();
+  const result: QuoteMap = {};
+  const missing: string[] = [];
+  for (const symbol of unique) {
+    const cached = quoteCache.get(symbol);
+    if (cached && now - cached.fetchedAt < quoteTtlMs()) {
+      result[symbol] = { ...cached.quote, source: "live" };
+      continue;
+    }
+    if ((quoteRetryAfter.get(symbol) ?? 0) > now) {
+      result[symbol] = cachedQuote(symbol) ?? fallbackQuote(symbol, now);
+      continue;
+    }
+    missing.push(symbol);
   }
 
-  const pending = inFlightFxRates.get(key);
-  if (pending) return pending;
+  if (missing.length > 0) {
+    const key = [...missing].sort().join(",");
+    let pending = inFlightQuoteBatches.get(key);
+    if (!pending) {
+      pending = fetchQuoteBatch(missing).finally(() => inFlightQuoteBatches.delete(key));
+      inFlightQuoteBatches.set(key, pending);
+    }
+    try {
+      Object.assign(result, await pending);
+    } catch (error) {
+      const nextRetry = Date.now() + retryMs(error);
+      for (const symbol of missing) quoteRetryAfter.set(symbol, nextRetry);
+    }
+  }
 
-  const request = fetchProviderRate(key)
-    .then((rate) => {
-      fxRateRetryAfter.delete(key);
-      fxRateCache.set(key, { rate, fetchedAt: Date.now() });
-      return rate;
-    })
-    .catch((error) => {
-      fxRateRetryAfter.set(key, Date.now() + failureRetryMs(error));
-      throw error;
-    })
-    .finally(() => inFlightFxRates.delete(key));
-
-  inFlightFxRates.set(key, request);
-  return request;
+  for (const symbol of unique) {
+    if (result[symbol]) continue;
+    result[symbol] = cachedQuote(symbol) ?? fallbackQuote(symbol, Date.now());
+  }
+  return result;
 }
 
-function parseCandle(value: TimeSeriesValue): MarketCandle | null {
-  if (!value.datetime || !value.open || !value.high || !value.low || !value.close) return null;
-  const time = Math.floor(Date.parse(`${value.datetime.replace(" ", "T")}Z`) / 1000);
+function parseCandle(value: MeridianCandle): MarketCandle | null {
+  const time = Math.floor(Date.parse(value.time) / 1000);
   const open = Number(value.open);
   const high = Number(value.high);
   const low = Number(value.low);
   const close = Number(value.close);
   if (![time, open, high, low, close].every(Number.isFinite)) return null;
-  const volume = value.volume == null ? null : Number(value.volume);
+  const tickCount = Number(value.tick_count);
   return {
     time,
     open,
     high,
     low,
     close,
-    ...(volume != null && Number.isFinite(volume) ? { volume } : {}),
+    ...(Number.isFinite(tickCount) && tickCount >= 0 ? { volume: tickCount } : {}),
   };
 }
 
@@ -334,70 +174,66 @@ async function fetchLiveCandles(
   interval: ChartInterval,
   points: number,
 ): Promise<MarketCandles> {
-  const providerSymbol = PROVIDER_SYMBOLS[symbol];
-  if (!providerSymbol) throw new Error(`No market data mapping for ${symbol}`);
-
-  const payload = await fetchTwelve<TimeSeriesResponse>("/time_series", {
-    symbol: providerSymbol,
-    interval,
-    outputsize: String(points),
-    order: "asc",
-    timezone: "UTC",
-  });
-  if (!payload) throw new Error("Market data key is not configured");
-
-  const candles = (payload.values ?? [])
+  const provider = (await meridianProviderSymbols([symbol])).get(symbol);
+  if (!provider) throw new Error(`No Meridian symbol mapping for ${symbol}`);
+  const payload = await fetchMeridianCandles(provider, MERIDIAN_TIMEFRAMES[interval], points);
+  const candles = (payload.candles ?? [])
     .map(parseCandle)
     .filter((candle): candle is MarketCandle => candle != null)
-    .sort((a, b) => a.time - b.time);
+    .sort((left, right) => left.time - right.time);
   if (candles.length === 0) throw new Error(`No candles returned for ${symbol}`);
+  return {
+    symbol,
+    interval,
+    candles,
+    source: "live",
+    feed: "meridian",
+    fetchedAt: Date.now(),
+  };
+}
 
-  return { symbol, interval, candles, source: "live", feed: "twelve", fetchedAt: Date.now() };
+function fallbackCandles(
+  symbol: string,
+  interval: ChartInterval,
+  points: number,
+  now = Date.now(),
+): MarketCandles {
+  const instrument = findInstrument(symbol);
+  return {
+    symbol,
+    interval,
+    candles: instrument?.synthetic === false ? [] : syntheticCandles(symbol, interval, points, now),
+    source: "simulated" as FeedSource,
+    feed: "meridian",
+    fetchedAt: now,
+  };
 }
 
 export async function loadCandles(
   symbol: string,
   interval: ChartInterval,
   points = 180,
-  options: { serverId?: string | null } = {},
+  _options: { serverId?: string | null } = {},
 ): Promise<MarketCandles> {
+  await loadMeridianCatalog().catch(() => null);
   const safeInterval = isChartInterval(interval) ? interval : "1min";
   const safePoints = Math.min(500, Math.max(20, Math.round(points)));
-  const feed = await loadFeedCandles(symbol, safeInterval, safePoints, {
-    serverId: options.serverId,
-  }).catch(() => null);
-  if (feed) return feed;
-  if (!PROVIDER_SYMBOLS[symbol]) {
-    return {
-      symbol,
-      interval: safeInterval,
-      candles: syntheticCandles(symbol, safeInterval, safePoints),
-      source: "simulated" as FeedSource,
-      fetchedAt: Date.now(),
-    };
-  }
+  if (!isInstrument(symbol)) return fallbackCandles(symbol, safeInterval, safePoints);
+
   const cacheKey = `${symbol}:${safeInterval}:${safePoints}`;
   const cached = candleCache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.fetchedAt < candleTtlMs(safeInterval)) {
     return { ...cached.series, source: "live" };
   }
-
-  const retryAfter = candleRetryAfter.get(cacheKey);
-  if (retryAfter && now < retryAfter) {
-    if (cached) return { ...cached.series, source: "cached" as FeedSource };
-    return {
-      symbol,
-      interval: safeInterval,
-      candles: syntheticCandles(symbol, safeInterval, safePoints),
-      source: "simulated" as FeedSource,
-      fetchedAt: now,
-    };
+  if ((candleRetryAfter.get(cacheKey) ?? 0) > now) {
+    return cached
+      ? { ...cached.series, source: "cached" as FeedSource }
+      : fallbackCandles(symbol, safeInterval, safePoints, now);
   }
 
-  const pending = inFlightCandles.get(cacheKey);
-  if (pending) return pending;
-
+  const existing = inFlightCandles.get(cacheKey);
+  if (existing) return existing;
   const request = fetchLiveCandles(symbol, safeInterval, safePoints)
     .then((series) => {
       candleRetryAfter.delete(cacheKey);
@@ -405,32 +241,60 @@ export async function loadCandles(
       return series;
     })
     .catch((error) => {
-      candleRetryAfter.set(cacheKey, Date.now() + failureRetryMs(error));
-      if (cached) return { ...cached.series, source: "cached" as FeedSource };
-      return {
-        symbol,
-        interval: safeInterval,
-        candles: syntheticCandles(symbol, safeInterval, safePoints),
-        source: "simulated" as FeedSource,
-        fetchedAt: Date.now(),
-      };
+      candleRetryAfter.set(cacheKey, Date.now() + retryMs(error));
+      return cached
+        ? { ...cached.series, source: "cached" as FeedSource }
+        : fallbackCandles(symbol, safeInterval, safePoints);
     })
     .finally(() => inFlightCandles.delete(cacheKey));
-
   inFlightCandles.set(cacheKey, request);
   return request;
 }
 
-export function resetMarketDataCache() {
+export async function loadProviderRate(pair: string): Promise<number> {
+  const symbol = pair.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  if (!symbol) throw new Error("Market rate pair is required");
+  const now = Date.now();
+  const cached = fxRateCache.get(symbol);
+  if (cached && now - cached.fetchedAt < fxRateTtlMs()) return cached.rate;
+  if ((fxRateRetryAfter.get(symbol) ?? 0) > now) {
+    if (cached) return cached.rate;
+    throw new Error(`Market rate unavailable for ${pair}`);
+  }
+
+  const existing = inFlightFxRates.get(symbol);
+  if (existing) return existing;
+  const request = (async () => {
+    await loadMeridianCatalog().catch(() => null);
+    const provider =
+      (await meridianProviderSymbols([symbol]).catch(() => new Map())).get(symbol) ?? symbol;
+    const quote = (await fetchMeridianQuotes([provider]))[0];
+    if (!quote) throw new Error(`Market rate unavailable for ${pair}`);
+    const rate = (quote.bid + quote.ask) / 2;
+    if (!Number.isFinite(rate) || rate <= 0) throw new Error(`Invalid market rate for ${pair}`);
+    fxRateRetryAfter.delete(symbol);
+    fxRateCache.set(symbol, { rate, fetchedAt: Date.now() });
+    return rate;
+  })()
+    .catch((error) => {
+      fxRateRetryAfter.set(symbol, Date.now() + retryMs(error));
+      if (cached) return cached.rate;
+      throw error;
+    })
+    .finally(() => inFlightFxRates.delete(symbol));
+  inFlightFxRates.set(symbol, request);
+  return request;
+}
+
+export function resetMarketDataCache(): void {
   quoteCache.clear();
   candleCache.clear();
   fxRateCache.clear();
-  inFlightQuotes.clear();
-  inFlightCandles.clear();
-  inFlightFxRates.clear();
   quoteRetryAfter.clear();
   candleRetryAfter.clear();
   fxRateRetryAfter.clear();
-  keys = null;
-  keyCursor = 0;
+  inFlightQuoteBatches.clear();
+  inFlightCandles.clear();
+  inFlightFxRates.clear();
+  resetMeridianCache();
 }

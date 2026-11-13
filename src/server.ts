@@ -2,49 +2,28 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
-import { handleDevFeedRequest } from "./lib/dev-feed.server";
-import { handleFeedStatusRequest } from "./lib/feed-status.server";
-import { FEED_SERVER_HEADER, MARKET_FEED_INSTANCE } from "./lib/market-feed";
-import { verifyRealtimeTicket } from "./lib/realtime-ticket";
 import { handleTerminalApi } from "./lib/terminal-api/router";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
 };
 
-type DurableObjectStub = {
-  fetch: (request: Request) => Promise<Response>;
-};
-
-type DurableObjectNamespace = {
-  idFromName: (name: string) => unknown;
-  get: (id: unknown) => DurableObjectStub;
-};
-
 type WorkerEnv = {
-  MARKET_STREAM?: DurableObjectNamespace;
-  REALTIME_TICKET_SECRET?: string;
-  MARKETDATA_TICKET_SECRET?: string;
-  MARKETDATA_SERVER_IDS?: string;
+  MERIDIAN_API_KEY?: string;
+  MERIDIAN_API_BASE_URL?: string;
+  MERIDIAN_WS_URL?: string;
+  MARKET_WS_URL?: string;
   TERMINAL_TOKEN_SECRET?: string;
   ALLOWED_ORIGINS?: string;
   ALLOW_DEV_ORIGINS?: string;
   SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
-  ALLOW_DEV_FEED?: string;
-  DEV_FEED_SECRET?: string;
-  DEV_FEED_ALLOWED_IPS?: string;
-  DEV_FEED_SERVER_IDS?: string;
-  DEV_FEED_STALE_MS?: string;
-  DEV_FEED_RETENTION_BARS?: string;
   ALLOW_FALLBACK_TRADING?: string;
 };
 
 type RealtimeGlobals = typeof globalThis & {
   __env__?: WorkerEnv;
 };
-
-const REALTIME_PATH = "/api/realtime/markets";
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
@@ -55,39 +34,6 @@ async function getServerEntry(): Promise<ServerEntry> {
     );
   }
   return serverEntryPromise;
-}
-
-async function handleRealtimeRequest(request: Request, env: WorkerEnv): Promise<Response | null> {
-  const url = new URL(request.url);
-  if (url.pathname !== REALTIME_PATH) return null;
-
-  if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
-  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-    return new Response("Expected WebSocket upgrade", { status: 426 });
-  }
-
-  const secret = env.REALTIME_TICKET_SECRET;
-  if (!secret) return new Response("Realtime streaming is not configured", { status: 503 });
-
-  const ticket = url.searchParams.get("ticket");
-  if (!ticket) return new Response("Missing realtime ticket", { status: 401 });
-
-  let claims;
-  try {
-    claims = await verifyRealtimeTicket(ticket, secret);
-    if (!claims) return new Response("Invalid realtime ticket", { status: 401 });
-  } catch {
-    return new Response("Invalid realtime ticket", { status: 401 });
-  }
-
-  const namespace = env.MARKET_STREAM;
-  if (!namespace) return new Response("Realtime streaming is not available", { status: 503 });
-
-  const headers = new Headers(request.headers);
-  headers.set(FEED_SERVER_HEADER, claims.serverId);
-  const forwarded = new Request(request, { headers });
-  const stub = namespace.get(namespace.idFromName(MARKET_FEED_INSTANCE));
-  return stub.fetch(forwarded);
 }
 
 // h3 swallows in-handler throws into a normal 500 Response with body
@@ -120,17 +66,10 @@ export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const runtimeEnv = (globalThis as RealtimeGlobals).__env__ ?? ((env ?? {}) as WorkerEnv);
-      const feedStatus = await handleFeedStatusRequest(request, runtimeEnv);
-      if (feedStatus) return feedStatus;
+      (globalThis as RealtimeGlobals).__env__ = runtimeEnv;
 
-      const feed = await handleDevFeedRequest(request, runtimeEnv);
-      if (feed) return feed;
-
-      const terminal = await handleTerminalApi(request, runtimeEnv, MARKET_FEED_INSTANCE);
+      const terminal = await handleTerminalApi(request, runtimeEnv);
       if (terminal) return terminal;
-
-      const realtime = await handleRealtimeRequest(request, runtimeEnv);
-      if (realtime) return realtime;
 
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

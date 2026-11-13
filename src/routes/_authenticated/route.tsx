@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/hooks/use-account";
 import { DesktopSidebar, MobileBottomNav, MobileHeader } from "@/components/app-nav";
 import { isPartnerRole } from "@/lib/partner";
+import { useMarketCatalog } from "@/hooks/use-market-catalog";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -32,6 +33,7 @@ function Layout() {
   const navigate = useNavigate();
   const { partner } = Route.useRouteContext();
   const { accounts, activeAccount, setActiveAccount, data } = useAccount();
+  const marketCatalog = useMarketCatalog(!partner);
   const ordersActive = (data?.open?.length ?? 0) > 0 || (data?.pending?.length ?? 0) > 0;
   const signOut = async () => {
     await qc.cancelQueries();
@@ -60,7 +62,13 @@ function Layout() {
         partner={partner}
       />
       <div className={partner ? "pb-0" : "pb-20 lg:pb-0"}>
-        <Outlet />
+        {!partner && marketCatalog.isLoading ? (
+          <main className="p-6" role="status">
+            Loading markets…
+          </main>
+        ) : (
+          <Outlet />
+        )}
       </div>
       {!partner && <MobileBottomNav ordersActive={ordersActive} />}
     </div>

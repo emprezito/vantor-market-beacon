@@ -96,6 +96,7 @@ function mergeLiveBar(
   quote: MarketQuote,
   interval: ChartInterval,
 ): MarketCandle[] {
+  if (quote.feedFallback || quote.mid <= 0) return candles;
   const live = candles[candles.length - 1];
   if (!live) return candles;
   const bucket = bucketTime(quote.ts, interval);

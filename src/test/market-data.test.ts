@@ -1,58 +1,68 @@
 import { describe, expect, it } from "vitest";
-import { INSTRUMENTS } from "@/lib/market";
+import { INSTRUMENTS, marketInstruments, registerMarketInstruments } from "@/lib/market";
 import {
   CHART_INTERVALS,
-  PROVIDER_SYMBOLS,
   intervalMs,
+  isStaleFeedQuote,
   isChartInterval,
   isInstrument,
   mergeQuotes,
   quoteFor,
   syntheticCandles,
   syntheticQuote,
-  withSpread,
   type MarketQuote,
 } from "@/lib/market-data";
 import { closePriceFromQuote, openPriceFromQuote } from "@/lib/trading";
 
 describe("market data feed", () => {
-  it("maps provider-backed instruments and simulates uncovered indices", () => {
+  it("registers the Meridian catalogue alongside built-in fallback instruments", () => {
     expect(INSTRUMENTS).toHaveLength(21);
-    const supported = [
-      "EURUSD",
-      "GBPUSD",
-      "USDJPY",
-      "USDCAD",
-      "USDCHF",
-      "AUDUSD",
-      "NZDUSD",
-      "EURGBP",
-      "EURJPY",
-      "GBPJPY",
-      "AUDJPY",
-      "XAUUSD",
-      "XAGUSD",
-      "USOIL",
-      "US30",
-      "NAS100",
-      "SPX500",
-      "UK100",
-      "BTCUSD",
-      "ETHUSD",
-    ];
-    expect(Object.keys(PROVIDER_SYMBOLS)).toHaveLength(supported.length);
-    for (const symbol of supported) expect(PROVIDER_SYMBOLS[symbol]).toBeTruthy();
-    expect(PROVIDER_SYMBOLS["GER40"]).toBeUndefined();
+    registerMarketInstruments([
+      {
+        symbol: "EURUSD",
+        providerSymbol: "EURUSDm",
+        name: "Euro vs US Dollar",
+        base: 1,
+        vol: 0,
+        digits: 5,
+        spread: 0,
+        contract: 100_000,
+        quoteIsUsd: true,
+        synthetic: false,
+      },
+      {
+        symbol: "USDZAR",
+        providerSymbol: "USDZAR",
+        name: "US Dollar vs Rand",
+        base: 1,
+        vol: 0,
+        digits: 5,
+        spread: 0,
+        contract: 100_000,
+        quoteIsUsd: false,
+        synthetic: false,
+      },
+    ]);
+    expect(marketInstruments().some((instrument) => instrument.symbol === "USDZAR")).toBe(true);
+    expect(isInstrument("USDZAR")).toBe(true);
     expect(isInstrument("GER40")).toBe(true);
     expect(isInstrument("UNKNOWN")).toBe(false);
+    registerMarketInstruments([]);
   });
 
-  it("applies the instrument spread around the provider mid", () => {
-    const instrument = INSTRUMENTS.find((item) => item.symbol === "EURUSD")!;
-    const quote = withSpread("EURUSD", 1.1, 1_000, "live");
-    expect(quote.ask - quote.bid).toBeCloseTo(instrument.spread);
-    expect(quote.mid).toBe(1.1);
-    expect(quote.source).toBe("live");
+  it("marks old Meridian quotes stale after five seconds", () => {
+    const now = Date.now();
+    expect(
+      isStaleFeedQuote({
+        symbol: "EURUSD",
+        bid: 1.1,
+        ask: 1.2,
+        mid: 1.15,
+        ts: now - 5_001,
+        source: "live",
+        feed: "meridian",
+      }),
+    ).toBe(true);
   });
 
   it("falls back to a simulated quote when a symbol is missing", () => {

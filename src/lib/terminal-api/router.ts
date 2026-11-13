@@ -6,8 +6,8 @@ import {
 } from "@/lib/account-auth.server";
 import { TRADING_SERVER_SELECT } from "@/lib/account-options";
 import { loadCandles, loadQuotes } from "@/lib/market-data.server";
-import { FEED_SERVER_HEADER, MARKET_FEED_INSTANCE } from "@/lib/market-feed";
-import { isChartInterval, isInstrument } from "@/lib/market-data";
+import { isChartInterval, isInstrument, isStaleFeedQuote } from "@/lib/market-data";
+import { loadMeridianCatalog } from "@/lib/meridian.server";
 import {
   cancelPendingOrder,
   closePosition,
@@ -20,7 +20,6 @@ import {
 } from "@/lib/trading-service.server";
 import {
   authenticateOptionalTerminalRequest,
-  authenticateStreamTicket,
   authenticateTerminalRequest,
   assertTrader,
 } from "./auth";
@@ -29,7 +28,7 @@ import { ApiError, mapError } from "./errors";
 import { corsFor, json, preflight, readJson } from "./http";
 import { withIdempotency } from "./idempotency";
 import { terminalAdmin } from "./supabase";
-import { createStreamTicket, createTerminalToken, roleFor, tokenSecret } from "./token";
+import { createTerminalToken, tokenSecret } from "./token";
 import type { CorsContext, TerminalEnv } from "./types";
 
 const PREFIX = "/api/v1/terminal";
@@ -73,7 +72,6 @@ const modifySchema = z
     message: "Provide stopLoss or takeProfit",
   });
 
-const streamTicketBuckets = new Map<string, number[]>();
 const resolveServerBuckets = new Map<string, number[]>();
 const candleBuckets = new Map<string, number[]>();
 
@@ -102,9 +100,9 @@ function parseSymbols(url: URL) {
     ),
   );
   if (symbols.length === 0) throw new ApiError(400, "validation_error", "No symbols requested");
-  if (symbols.length > 21)
+  if (symbols.length > 100)
     throw new ApiError(400, "validation_error", "Too many symbols requested");
-  if (symbols.some((symbol) => !isInstrument(symbol))) {
+  if (symbols.some((symbol) => !/^[A-Za-z0-9._-]{3,32}$/.test(symbol))) {
     throw new ApiError(400, "unknown_symbol", "Unknown market symbol");
   }
   return symbols;
@@ -113,7 +111,9 @@ function parseSymbols(url: URL) {
 function parseCandles(url: URL) {
   const symbol = url.searchParams.get("symbol") ?? "";
   const interval = url.searchParams.get("interval") ?? "";
-  if (!isInstrument(symbol)) throw new ApiError(400, "unknown_symbol", "Unknown market symbol");
+  if (!/^[A-Za-z0-9._-]{3,32}$/.test(symbol)) {
+    throw new ApiError(400, "unknown_symbol", "Unknown market symbol");
+  }
   if (!isChartInterval(interval))
     throw new ApiError(400, "invalid_interval", "Invalid chart interval");
   const rawPoints = url.searchParams.get("points");
@@ -259,6 +259,10 @@ async function account(request: Request, env: TerminalEnv, cors: CorsContext) {
 
 async function quotes(request: Request, env: TerminalEnv, cors: CorsContext) {
   const symbols = parseSymbols(new URL(request.url));
+  await loadMeridianCatalog().catch(() => null);
+  if (symbols.some((symbol) => !isInstrument(symbol))) {
+    throw new ApiError(400, "unknown_symbol", "Unknown market symbol");
+  }
   const admin = terminalAdmin(env);
   const session = await authenticateOptionalTerminalRequest(request, env, admin);
   let result;
@@ -268,14 +272,15 @@ async function quotes(request: Request, env: TerminalEnv, cors: CorsContext) {
     throw new ApiError(503, "service_unavailable", "Could not load market quotes");
   }
   return json(cors, {
-    quotes: symbols.map((symbol) => {
-      const quote = result[symbol]!;
+    quotes: symbols.flatMap((symbol) => {
+      const quote = result[symbol];
+      if (!quote) return [];
       return {
         symbol,
         bid: quote.bid,
         ask: quote.ask,
         ts: quote.ts,
-        stale: quote.source !== "live" || quote.marketOpen === false,
+        stale: quote.source !== "live" || isStaleFeedQuote(quote) || quote.feedFallback === true,
         ...(quote.feed == null ? {} : { feed: quote.feed }),
         ...(quote.feedFallback ? { feedFallback: true } : {}),
         ...(quote.marketOpen == null ? {} : { marketOpen: quote.marketOpen }),
@@ -292,6 +297,8 @@ async function candles(request: Request, env: TerminalEnv, cors: CorsContext) {
   const { account: tradingAccount } = await authenticateTerminalRequest(request, env, admin);
   checkCandlesRate(tradingAccount.id);
   const { symbol, interval, points } = parseCandles(new URL(request.url));
+  await loadMeridianCatalog().catch(() => null);
+  if (!isInstrument(symbol)) throw new ApiError(400, "unknown_symbol", "Unknown market symbol");
   let result;
   try {
     result = await loadCandles(symbol, interval, points, {
@@ -321,18 +328,6 @@ function checkCandlesRate(accountId: string) {
   candleBuckets.set(accountId, recent);
 }
 
-function checkStreamTicketRate(accountId: string) {
-  const now = Date.now();
-  const recent = (streamTicketBuckets.get(accountId) ?? []).filter((at) => now - at < 60_000);
-  if (recent.length >= 10) {
-    throw new ApiError(429, "rate_limited", "Too many stream ticket requests", {
-      "retry-after": "60",
-    });
-  }
-  recent.push(now);
-  streamTicketBuckets.set(accountId, recent);
-}
-
 function checkResolveServerRate(accountId: string) {
   const now = Date.now();
   const recent = (resolveServerBuckets.get(accountId) ?? []).filter((at) => now - at < 60_000);
@@ -343,18 +338,6 @@ function checkResolveServerRate(accountId: string) {
   }
   recent.push(now);
   resolveServerBuckets.set(accountId, recent);
-}
-
-async function streamTicket(request: Request, env: TerminalEnv, cors: CorsContext) {
-  const admin = terminalAdmin(env);
-  const { account: tradingAccount } = await authenticateTerminalRequest(request, env, admin);
-  checkStreamTicketRate(tradingAccount.id);
-  const result = await createStreamTicket(
-    tradingAccount,
-    roleFor(tradingAccount),
-    tokenSecret(env),
-  );
-  return json(cors, result);
 }
 
 async function createOrder(request: Request, env: TerminalEnv, cors: CorsContext) {
@@ -458,28 +441,9 @@ async function modify(request: Request, env: TerminalEnv, cors: CorsContext, id:
   });
 }
 
-async function stream(request: Request, env: TerminalEnv, cors: CorsContext, instance: string) {
-  if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-    throw new ApiError(426, "upgrade_required", "Expected WebSocket upgrade");
-  }
-  const ticket = new URL(request.url).searchParams.get("ticket");
-  if (!ticket) throw new ApiError(401, "unauthorized", "Missing stream ticket");
-  const admin = terminalAdmin(env);
-  const { claims } = await authenticateStreamTicket(ticket, env, admin);
-  const namespace = env.MARKET_STREAM;
-  if (!namespace)
-    throw new ApiError(503, "service_unavailable", "Realtime streaming is not available");
-  const headers = new Headers(request.headers);
-  headers.set(FEED_SERVER_HEADER, claims.serverId);
-  const forwarded = new Request(request, { headers });
-  const stub = namespace.get(namespace.idFromName(instance));
-  return stub.fetch(forwarded);
-}
-
 export async function handleTerminalApi(
   request: Request,
   env: TerminalEnv,
-  instance = MARKET_FEED_INSTANCE,
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) return null;
@@ -505,12 +469,9 @@ export async function handleTerminalApi(
     if (path === "/servers" && method === "GET") return await servers(env, cors);
     if (path === "/servers/resolve" && method === "POST")
       return await resolveServer(request, env, cors);
-    if (path === "/stream" && method === "GET") return await stream(request, env, cors, instance);
     if (path === "/account" && method === "GET") return await account(request, env, cors);
     if (path === "/quotes" && method === "GET") return await quotes(request, env, cors);
     if (path === "/candles" && method === "GET") return await candles(request, env, cors);
-    if (path === "/stream-ticket" && method === "POST")
-      return await streamTicket(request, env, cors);
     if (path === "/orders" && method === "POST") return await createOrder(request, env, cors);
     if (path === "/orders/pending" && method === "POST")
       return await createLimitOrder(request, env, cors);

@@ -96,19 +96,14 @@ market data, live P/L, margin, stop loss and take profit.
   P/L update every second in the UI.
 - Lightweight Charts candlestick chart with 1m/5m/15m/30m/1H timeframes, live
   last-bar updates and dashed entry price lines for open positions.
-- Server-side market feed: Exness quotes/candles for allowlisted servers, then
-  Twelve Data with caching, then a deterministic simulated fallback. The terminal
-  shows whether quotes are live, cached, fallback or simulated; fallback quotes
-  are display-only and block new orders, limit fills, SL/TP and fund movements.
-- Realtime `XAU/USD` and `BTC/USD` ticks via a server-side Twelve Data WebSocket
-  relay, plus server-scoped Exness ticks. The browser connects through an
-  authenticated, short-lived account/server-bound ticket and all clients share
-  one upstream stream.
-- Allowlisted accounts can receive `XAU/USD` directly from the MarketDatafeed VPS
-  over `wss://data.fundedng.fun/ws/v1/market`. The Worker issues a separate
-  120-second HMAC ticket bound to the user, account, server, `XAUUSDM`, and
-  `tick`; the VPS verifies it before subscribing. Exness accounts stay on the
-  Exness feed, and the DO relay still supplies `BTC/USD`.
+- Server-side Meridian REST quotes and candles with cache and deterministic,
+  display-only fallback. Fallback prices block new orders, limit fills, SL/TP and
+  fund movements while manual closes remain available.
+- Realtime ticks for the full entitled Meridian catalogue. The authenticated
+  Worker exchanges its server-only API key for a short-lived token, then the
+  browser connects directly to Meridian and subscribes to the symbols in view.
+- The anonymous homepage uses a cached public Vantor server function backed by
+  Meridian REST, so no Vantor session or provider key is exposed to the browser.
 - Stop loss / take profit are validated when the order is placed and evaluated
   server-side on every account poll (every 5 seconds). Due limit orders are
   evaluated in the same poll.
@@ -142,20 +137,20 @@ market data, live P/L, margin, stop loss and take profit.
 
 ## Tech stack
 
-| Layer            | Choice                                                                      |
-| ---------------- | --------------------------------------------------------------------------- |
-| UI               | React 19, Tailwind CSS v4, Radix UI / shadcn-style components, lucide-react |
-| Routing / SSR    | TanStack Router + TanStack Start                                            |
-| Data fetching    | TanStack Query (5-second account/quote poll, 60-second candle poll)         |
-| Forms / feedback | Plain React forms, Sonner toasts                                            |
-| Charts           | Lightweight Charts 5 (TradingView)                                          |
-| Market data      | Exness dev feed, Twelve Data REST, server-side proxy with simulated fallback |
-| Auth             | Supabase Auth (`@supabase/supabase-js`)                                     |
-| Database         | Supabase Postgres with RLS                                                  |
-| Validation       | Custom validators in `src/lib/*` (no zod on the hot path)                   |
-| Tests            | Vitest + Testing Library (jsdom)                                            |
-| Build / hosting  | Vite + Nitro Cloudflare target, Wrangler                                    |
-| Language         | TypeScript (strict, path alias `@/` → `src/`)                               |
+| Layer            | Choice                                                                          |
+| ---------------- | ------------------------------------------------------------------------------- |
+| UI               | React 19, Tailwind CSS v4, Radix UI / shadcn-style components, lucide-react     |
+| Routing / SSR    | TanStack Router + TanStack Start                                                |
+| Data fetching    | TanStack Query (5-second account/quote poll, 60-second candle poll)             |
+| Forms / feedback | Plain React forms, Sonner toasts                                                |
+| Charts           | Lightweight Charts 5 (TradingView)                                              |
+| Market data      | Meridian REST + direct token-authenticated WebSocket, cached/simulated fallback |
+| Auth             | Supabase Auth (`@supabase/supabase-js`)                                         |
+| Database         | Supabase Postgres with RLS                                                      |
+| Validation       | Custom validators in `src/lib/*` (no zod on the hot path)                       |
+| Tests            | Vitest + Testing Library (jsdom)                                                |
+| Build / hosting  | Vite + Nitro Cloudflare target, Wrangler                                        |
+| Language         | TypeScript (strict, path alias `@/` → `src/`)                                   |
 
 ---
 
@@ -169,11 +164,9 @@ Browser
         │
 Cloudflare Worker (Vite/Nitro SSR + server functions)
   ├─ requireSupabaseAuth middleware: verifies JWT via getClaims()
-  ├─ market feed: Exness feed-first for allowlisted servers
-  │     ├─→ MarketStream Durable Object (quotes/candles in SQLite)
-  │     └─→ Twelve Data REST API + in-memory cache fallback
-  ├─ /api/realtime/markets: signed account/server-bound ticket
-  │     └─→ MarketStream Durable Object → Twelve Data WebSocket
+  ├─ Meridian REST proxy: catalogue, quotes and candles
+  ├─ Meridian WS token exchange: authenticated account → short-lived token
+  │     └─→ browser connects directly to Meridian WebSocket
   ├─ user-scoped Supabase client (publishable key + user token, RLS)
   └─ supabaseAdmin (service role, server only): all writes + atomic RPC
         │
@@ -192,23 +185,19 @@ Key properties:
   by RLS policies.
 - Server functions are protected by a bearer-token middleware and TanStack's
   CSRF middleware.
-- Quotes are loaded server-side (`src/lib/market-data.server.ts`) so provider
-  keys never reach the browser. Exness data is read first only when the account's
-  `server_id` is in `DEV_FEED_SERVER_IDS`; a missing allowlist fails closed. Other
-  accounts, or symbols without a usable Exness quote, use Twelve Data, cache, or
-  the deterministic engine in `src/lib/market.ts`.
+- Quotes and candles are loaded server-side from Meridian
+  (`src/lib/meridian.server.ts`, `src/lib/market-data.server.ts`) so the API key
+  never reaches the browser. Canonical provider symbols and broker suffixes are
+  preserved for REST and WebSocket calls.
 - Fallback quotes (`feedFallback: true`) are display-only. New market/limit
   orders, stop updates, pending fills, SL/TP, and fund movements are refused while
   they are present; manual closes remain available. `ALLOW_FALLBACK_TRADING=true`
   bypasses the fallback guard for private development only.
-- `XAU/USD` and `BTC/USD` also have a realtime path: an authenticated server
-  function issues a 120-second HMAC ticket bound to the account and server, the
-  Worker verifies it and forwards the WebSocket upgrade to a single
-  `MarketStream` Durable Object, which owns one upstream Twelve Data connection
-  and fans ticks out to every connected browser. The provider key stays inside the
-  Worker/DO. Exness ticks are sent only to allowlisted servers.
-- Bid/ask are derived from the provider mid price plus the instrument spread; they
-  are not exchange-native broker quotes.
+- Realtime uses Meridian's short-lived provider token. `getMeridianWsToken`
+  validates the Vantor account and performs the server-side token exchange;
+  `useMeridianQuotes` connects, subscribes, heartbeats and reconnects without
+  persisting the token.
+- Meridian supplies executable bid/ask values. Mid is derived as `(bid + ask) / 2`.
 
 ### Request flow for a trade
 
@@ -271,8 +260,10 @@ layer.
 | `removeServerMember`          | `src/lib/partner.functions.ts`  | serverId, userId                                                       | Removes a member; admins cannot remove admins and owners cannot be removed                                                                                                     |
 | `listServerAccounts`          | `src/lib/partner.functions.ts`  | serverId                                                               | Lists safe account fields for a server, without credentials                                                                                                                    |
 | `changeServerAccountPassword` | `src/lib/partner.functions.ts`  | serverId, accountId, password                                          | Owner/admin resets the trader password for an account on that server                                                                                                           |
-| `getMarketQuotes`             | `src/lib/market.functions.ts`   | symbols[] (max 21), accountId?                                         | Server-side quote feed; Exness for allowlisted server, then Twelve/cache/simulated; fallback marked display-only                                                               |
-| `getMarketCandles`            | `src/lib/market.functions.ts`   | symbol, interval, points (20–500), accountId?                          | OHLC candles for the chart; Exness for allowlisted server, then provider cache and simulated fallback                                                                          |
+| `getMarketQuotes`             | `src/lib/market.functions.ts`   | symbols[] (max 100), accountId?                                        | Server-side Meridian REST snapshot with cached/display-only fallback                                                                                                           |
+| `getMarketCandles`            | `src/lib/market.functions.ts`   | symbol, interval, points (20-500), accountId?                          | Meridian completed OHLC candles with provider cache and simulated fallback                                                                                                     |
+| `getMarketCatalog`            | `src/lib/market.functions.ts`   | none                                                                   | Anonymous server-side Meridian catalogue proxy; preserves canonical provider symbols and precision                                                                             |
+| `getHomepageQuotes`           | `src/lib/market.functions.ts`   | none                                                                   | Anonymous cached Meridian REST preview for the homepage                                                                                                                        |
 | `getAccount`                  | `src/lib/trading.functions.ts`  | accountId                                                              | Snapshot: account, balance, open/closed positions (100), pending orders, transactions (100), quotes for open/pending symbols; auto-closes triggered SL/TP and fills due limits |
 | `openTrade`                   | `src/lib/trading.functions.ts`  | accountId, symbol, side, lots, stopLoss, takeProfit                    | Validates, checks free margin, inserts position atomically                                                                                                                     |
 | `placeLimitOrder`             | `src/lib/trading.functions.ts`  | accountId, symbol, side, lots, limitPrice, stopLoss, takeProfit        | Validates pending price/stop sides and inserts a pending order                                                                                                                 |
@@ -287,7 +278,8 @@ Shared helpers live in `src/lib/trading.ts` (pricing math),
 `src/lib/partner.ts` (role and slug helpers),
 `src/lib/market.ts` (instrument catalog and deterministic fallback prices),
 `src/lib/market-data.ts` (feed types, provider symbol map, synthetic candles) and
-`src/lib/market-data.server.ts` (Twelve Data client, caches, fallback).
+`src/lib/meridian.server.ts` (Meridian client/catalogue/token exchange) and
+`src/lib/market-data.server.ts` (quote/candle caches and fallback).
 
 ### Atomic database RPC
 
@@ -485,31 +477,16 @@ service role.
 | BTCUSD | Bitcoin / US Dollar              | 1      | 15      | 1        | yes          |
 | ETHUSD | Ethereum / US Dollar             | 2      | 1.5     | 1        | yes          |
 
-Prices come from Twelve Data for mapped instruments when `TWELVE_DATA_API_KEYS`
-is configured; unmapped instruments and any provider failure use the deterministic
-multi-sine engine (same per-symbol phase seed). Bid/ask
-are the provider mid price ± half the spread. Chart candles come from the
-provider time-series endpoint, and synthetic OHLC candles are generated from the
-fallback engine when the feed is unavailable.
+Meridian's `/symbols` and `/instruments` endpoints provide the full entitled
+catalogue, precision and contract metadata. The Vantor catalogue retains an
+existing internal symbol where possible while preserving the exact Meridian
+canonical symbol (including broker suffixes such as `XAUUSDm`) for provider calls.
 
-Provider symbol mapping lives in `PROVIDER_SYMBOLS` (`src/lib/market-data.ts`).
-Forex pairs use the slash form (`EUR/USD`); metals are `XAU/USD`, `XAG/USD`;
-energy is `WTI/USD`; indices are `DJI`, `NDX`, `SPX`, `FTSE`; crypto is
-`BTC/USD`, `ETH/USD`. Instruments without a mapping stay on the deterministic
-synthetic feed. `GER40` is intentionally unmapped because Twelve Data's `DAX`
-resolves to an ETF rather than the index; verify both the instrument and price
-magnitude before adding a mapping. On Basic, 14 instruments are live (11 forex,
-`XAU/USD`, `BTC/USD`, `ETH/USD`); `XAG/USD`, `WTI/USD` and index quotes need
-Grow or higher, and US indices are not part of the standard reference catalog.
-
-Realtime streaming currently covers `XAU/USD` and `BTC/USD` over one upstream
-connection (two of the trial's eight subscription slots). The Twelve Data trial
-WebSocket accepts only a small symbol set (verified: `EUR/USD`, `XAU/USD`,
-`BTC/USD`, `AAPL`) and is evaluation-only; production realtime for other symbols
-requires a paid WebSocket plan. Trial credits are concurrent subscription slots,
-not minutes: one connection per account can hold eight subscribed symbols
-indefinitely while connected. The relay keeps one upstream connection open while
-at least one browser is subscribed and closes it when the last client leaves.
+REST quotes provide bid, ask, source time and receive time. Candles come from
+Meridian's completed OHLC endpoint using `M1`, `M5`, `M15`, `M30`, `H1`, `H4`,
+`D1`, `W1` and `MN1`. Realtime uses one browser connection per active terminal,
+with one subscription message covering every symbol currently in view. Quotes
+older than five seconds are stale for trading.
 
 ### Formulas
 
@@ -615,15 +592,13 @@ credentials.
 │  │  ├─ trading.ts              # Pricing, P/L, margin, stops
 │  │  ├─ trading-validation.ts   # Order/fund validation
 │  │  ├─ market.ts               # Instruments and deterministic fallback pricing
-│  │  ├─ market-data.ts          # Feed types, provider symbols, synthetic candles
-│  │  ├─ market-data.server.ts   # Twelve Data client, caches, fallback
+│  │  ├─ market-data.ts          # Feed types, freshness and synthetic candles
+│  │  ├─ market-data.server.ts   # Meridian quote/candle caches and fallback
+│  │  ├─ meridian.ts             # Shared Meridian contract and parsers
+│  │  ├─ meridian.server.ts      # Server-only REST client, catalogue and WS token
 │  │  ├─ market.functions.ts     # Quote/candle server functions
-│  │  ├─ realtime-ticket.ts      # HMAC realtime ticket signing/verification
-│  │  ├─ realtime.functions.ts   # Authenticated realtime ticket server function
-│  │  ├─ realtime-symbols.ts     # Realtime client/provider symbol map
-│  │  ├─ marketdatafeed.ts       # Direct VPS symbols, tick validation and quotes
-│  │  ├─ marketdatafeed-ticket.ts # Direct VPS ticket signing, claims and allowlist
-│  │  ├─ market-stream.ts        # MarketStream Durable Object WebSocket relay
+│  │  ├─ realtime-ticket.ts      # Shared HMAC helpers for terminal bearer tokens
+│  │  ├─ realtime.functions.ts   # Authenticated Meridian WS token exchange
 │  │  └─ error-*.ts              # SSR error capture/rendering helpers
 │  ├─ integrations/
 │  │  ├─ supabase/               # Browser client, admin client, auth middleware
@@ -632,8 +607,8 @@ credentials.
 │  │  ├─ use-account.ts          # Active account + snapshot queries
 │  │  ├─ use-active-account.ts   # localStorage account selection
 │  │  ├─ use-market-data.ts      # Quote/candle polling hooks
-│  │  ├─ use-realtime-quotes.ts  # Authenticated multi-symbol WebSocket quote hook
-│  │  ├─ use-marketdatafeed-quotes.ts # Direct VPS WebSocket quote hook
+│  │  ├─ use-market-catalog.ts   # Dynamic entitled instrument catalogue
+│  │  ├─ use-meridian-quotes.ts  # Direct token-authenticated WebSocket hook
 │  │  ├─ use-watchlist.ts        # localStorage instrument watchlist
 │  │  └─ use-session.ts          # Session and clock hooks
 │  ├─ components/ui/             # shadcn-style component library
@@ -644,8 +619,8 @@ credentials.
 │  └─ styles.css                 # Tailwind v4 theme (oklch tokens)
 ├─ supabase/migrations/          # SQL schema and RPC migrations
 ├─ scripts/apply-schema.mjs      # Legacy single-file migration runner
-├─ wrangler.jsonc                # Cloudflare Worker config, public vars, DO binding
-├─ exports.cloudflare.ts         # Custom Worker export (MarketStream Durable Object)
+├─ wrangler.jsonc                # Cloudflare Worker configuration and public vars
+├─ exports.cloudflare.ts         # Cloudflare export entry
 ├─ vite.config.ts                # Lovable TanStack/Vite preset
 ├─ roadmap.md                    # Short project checklist (partly stale)
 └─ AGENTS.md                     # Repo/Lovable workflow notes
@@ -666,9 +641,9 @@ bun run dev        # http://localhost:5173
 ```
 
 Apply the database migrations once (see below), then register a user in the app
-and open a trading account. Add `TWELVE_DATA_API_KEY` to `.dev.vars` (or
-`.env.local`) to use live market data locally; otherwise the terminal runs on the
-simulated feed.
+and open a trading account. Add `MERIDIAN_API_KEY` to `.dev.vars` (or
+`.env.local`) and configure the Meridian REST/WS URLs to use live market data;
+otherwise the terminal uses its display-only simulated fallback.
 
 ---
 
@@ -678,61 +653,40 @@ Public values are committed in `.env` and mirrored to Worker vars in
 `wrangler.jsonc`. Secrets belong in `.env.local` / `.dev.vars` (gitignored) and
 in Cloudflare secrets.
 
-| Variable                        | Scope                 | Purpose                                                                                 |
-| ------------------------------- | --------------------- | --------------------------------------------------------------------------------------- |
-| `SUPABASE_URL`                  | server + public       | Project URL                                                                             |
-| `SUPABASE_PUBLISHABLE_KEY`      | server + public       | Publishable API key (safe for browser)                                                  |
-| `SUPABASE_PROJECT_ID`           | public                | Project reference                                                                       |
-| `VITE_SUPABASE_URL`             | browser               | Vite-exposed project URL                                                                |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | browser               | Vite-exposed publishable key                                                            |
-| `VITE_SUPABASE_PROJECT_ID`      | browser               | Vite-exposed project reference                                                          |
-| `SUPABASE_SERVICE_ROLE_KEY`     | server only           | Bypasses RLS; required by all mutations                                                 |
-| `SUPABASE_DB_URL`               | local tooling only    | Optional direct/session-pooler URL for the legacy `db:apply` runner                     |
-| `TWELVE_DATA_API_KEYS`          | server only           | Comma-separated market data key pool; rotated round-robin and on 429                    |
-| `TWELVE_DATA_API_KEY`           | server only           | Single-key fallback; merged with the pool and de-duplicated                             |
-| `REALTIME_TICKET_SECRET`        | server only           | HMAC secret for short-lived realtime WebSocket tickets; required for realtime streaming |
-| `MARKETDATA_TICKET_SECRET`      | server only           | HMAC secret for direct MarketDatafeed VPS tickets; required for VPS XAU/USD streaming   |
-| `MARKETDATA_SERVER_IDS`         | server only           | Comma-separated server ids allowed to receive MarketDatafeed VPS quotes; fails closed   |
-| `TERMINAL_TOKEN_SECRET`         | server only           | HMAC secret for terminal bearer tokens; do not reuse another secret                     |
-| `ALLOWED_ORIGINS`               | server only, optional | Comma-separated terminal CORS allowlist; defaults are built in                           |
-| `ALLOW_DEV_ORIGINS`             | server only, optional | `true` adds `http://localhost:8080` to terminal CORS                                     |
-| `ALLOW_DEV_FEED`                | server only, optional | `true` enables the private Exness ingest and feed status endpoints                       |
-| `DEV_FEED_SECRET`               | server only           | HMAC secret for `POST /api/dev/feed/ingest`; required when the feed is enabled           |
-| `DEV_FEED_SERVER_IDS`           | server only           | Comma-separated server ids allowed to read Exness quotes, candles and ticks; fails closed |
-| `DEV_FEED_ALLOWED_IPS`          | server only, optional | Comma-separated source IP allowlist for feed ingest                                      |
-| `DEV_FEED_STALE_MS`             | server only, optional | Feed staleness threshold (default 10000, minimum 1000)                                   |
-| `DEV_FEED_RETENTION_BARS`       | server only, optional | Bars retained per series (default 2000, minimum 500)                                     |
-| `ALLOW_FALLBACK_TRADING`        | server only, optional | `true` allows trading on fallback quotes for private development only; default false     |
-| `MARKET_QUOTE_TTL_MS`           | server only, optional | Quote cache TTL (default 60000, minimum 1000; use 15000–30000 only on paid plans)       |
-| `MARKET_CANDLE_TTL_MS`          | server only, optional | Candle cache TTL override (default 1m–15m by timeframe)                                 |
+| Variable                        | Scope                 | Purpose                                                                              |
+| ------------------------------- | --------------------- | ------------------------------------------------------------------------------------ |
+| `SUPABASE_URL`                  | server + public       | Project URL                                                                          |
+| `SUPABASE_PUBLISHABLE_KEY`      | server + public       | Publishable API key (safe for browser)                                               |
+| `SUPABASE_PROJECT_ID`           | public                | Project reference                                                                    |
+| `VITE_SUPABASE_URL`             | browser               | Vite-exposed project URL                                                             |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | browser               | Vite-exposed publishable key                                                         |
+| `VITE_SUPABASE_PROJECT_ID`      | browser               | Vite-exposed project reference                                                       |
+| `SUPABASE_SERVICE_ROLE_KEY`     | server only           | Bypasses RLS; required by all mutations                                              |
+| `SUPABASE_DB_URL`               | local tooling only    | Optional direct/session-pooler URL for the legacy `db:apply` runner                  |
+| `MERIDIAN_API_KEY`              | server only           | Long-lived Meridian key used for REST and WS-token exchange                          |
+| `MERIDIAN_API_BASE_URL`         | server only           | Meridian REST root, e.g. `http://localhost:8000/api/v1`                              |
+| `MERIDIAN_WS_URL`               | server response       | Meridian stream URL, e.g. `ws://localhost:8000/ws/v1/market`                         |
+| `TERMINAL_TOKEN_SECRET`         | server only           | HMAC secret for terminal bearer tokens; do not reuse another secret                  |
+| `ALLOWED_ORIGINS`               | server only, optional | Comma-separated terminal CORS allowlist; defaults are built in                       |
+| `ALLOW_DEV_ORIGINS`             | server only, optional | `true` adds `http://localhost:8080` to terminal CORS                                 |
+| `ALLOW_FALLBACK_TRADING`        | server only, optional | `true` allows trading on fallback quotes for private development only; default false |
+| `MERIDIAN_QUOTE_TTL_MS`         | server only, optional | Quote cache TTL (default 5000, minimum 1000)                                         |
+| `MERIDIAN_CANDLE_TTL_MS`        | server only, optional | Candle cache TTL override (default 1m–6h by timeframe)                               |
 
 Notes:
 
 - `.gitignore` excludes `*.local` and `.dev.vars`; never commit the service-role
-  key or the database URL.
+  key, Meridian key or database URL.
 - The worker needs `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and the
   `SUPABASE_SERVICE_ROLE_KEY` secret.
-- Add `TWELVE_DATA_API_KEYS` as a Worker secret to enable live quotes. Each free
-  Basic key allows 8 credits/minute and 800/day; a 12-key pool gives 96/minute
-  and 9,600/day, with round-robin rotation and a per-key cooldown on 429
-  (until the next minute, or UTC midnight for a daily limit).
-- At the 60s quote TTL, the default watchlist has five provider-backed symbols
-  plus one chart candle: about 6 credits/minute, or 8,640/day, so 12 keys cover
-  24/7 use with roughly 10% headroom. The 14 symbols that are live on Basic
-  (11 forex, gold, BTC and ETH) plus one candle need 15/minute, or 21,600/day,
-  so the pool covers about 10.7 hours per day. If all 21 instruments were live
-  (requires Grow+), 31,680/day would need about 40 keys for 24/7. Indices plus
-  silver and WTI are plan-restricted on Basic and are retried only every 15
-  minutes, so they do not consume the default budget.
-- `TWELVE_DATA_API_KEY=demo` works locally for EUR/USD and BTC/USD only.
-- Set `REALTIME_TICKET_SECRET` to a random 32-byte value (for example
-  `openssl rand -hex 32`) to enable the realtime WebSocket relay. Without it, the
-  endpoint returns 503 and the terminal falls back to REST quotes.
-- The Exness feed is for private development and controlled testing. Set
-  `ALLOW_DEV_FEED=true`, a `DEV_FEED_SECRET`, and comma-separated server UUIDs in
-  `DEV_FEED_SERVER_IDS`; an empty allowlist fails closed. See `docs/dev-feed.md`.
-- `ALLOW_DEV_FEED`, `DEV_FEED_*`, `ALLOW_FALLBACK_TRADING`, and the terminal
-  secrets are dashboard values, not committed vars. Deploy with
+- Add `MERIDIAN_API_KEY` as a Worker secret. REST calls use `X-API-Key`; the
+  authenticated WS token function returns only the provider's short-lived token.
+- Local defaults target `http://localhost:8000/api/v1` and
+  `ws://localhost:8000/ws/v1/market`. Production must use public HTTPS/WSS URLs.
+- Meridian 429 responses honor `Retry-After`; do not lower cache TTLs without
+  checking the paid plan's request budget.
+- `ALLOW_FALLBACK_TRADING` and terminal secrets are dashboard values, not
+  committed vars. Deploy with
   `bunx wrangler deploy --keep-vars` (after building) so a deploy does not remove
   them.
 - If the database password contains `?`, URL-encode it as `%3F` (and as `%%3F`
@@ -794,13 +748,10 @@ Vitest with jsdom covers the pure logic and routing:
 | Suite                                   | Coverage                                                                                                           |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `src/test/trading.test.ts`              | P/L, leverage-aware margin, limit fills, stop-loss/take-profit logic                                               |
-| `src/test/market-data.test.ts`          | Provider symbol coverage, spread derivation, simulated fallback, synthetic OHLC candles, quote merging             |
-| `src/test/market-data-rotation.test.ts` | Key-pool rotation, 429 cooldown, all-keys-limited fallback                                                         |
-| `src/test/realtime-ticket.test.ts`      | Realtime ticket signing, tamper/wrong-secret/expiry rejection                                                      |
-| `src/test/marketdatafeed-ticket.test.ts` | MarketDatafeed ticket scope, tamper/wrong-secret/expiry rejection and server allowlist                            |
-| `src/test/marketdatafeed.test.ts`       | VPS symbol mapping, strict tick validation and live quote construction                                             |
-| `src/test/use-marketdatafeed-quotes.test.tsx` | VPS ticket fetch, subscription, stale drop, reconnect and account cleanup                                    |
-| `src/test/realtime-symbols.test.ts`     | Realtime client/provider symbol coverage                                                                           |
+| `src/test/market-data.test.ts`          | Dynamic catalogue registration, five-second freshness, fallback candles and quote merging                          |
+| `src/test/meridian.test.ts`             | Meridian quote parsing, timeframe mapping and stream envelopes                                                     |
+| `src/test/meridian-server.test.ts`      | Catalogue suffix mapping, REST quote/candle normalization and WS-token exchange                                    |
+| `src/test/use-meridian-quotes.test.tsx` | Browser token connection, subscription and tick mapping                                                            |
 | `src/test/trading-validation.test.ts`   | Lot limits, limit/stop-price validation, fund limits                                                               |
 | `src/test/account-options.test.ts`      | Account types/currencies/leverage, balance precision, nickname rules, password length                              |
 | `src/test/server-options.test.ts`       | Per-server defaults, balance clamping and server-specific option validation                                        |
@@ -831,33 +782,20 @@ bunx wrangler deploy --keep-vars
 ```
 
 - Public configuration is embedded in `wrangler.jsonc` (`vars`). Dashboard-only
-  variables (`ALLOW_DEV_FEED`, `DEV_FEED_*`, `ALLOW_FALLBACK_TRADING`,
-  `ALLOWED_ORIGINS`, `ALLOW_DEV_ORIGINS`, `MARKETDATA_SERVER_IDS`) require
-  `--keep-vars`; a plain `wrangler deploy` can remove them.
+  variables (`MERIDIAN_API_BASE_URL`, `MERIDIAN_WS_URL`, `ALLOW_FALLBACK_TRADING`,
+  `ALLOWED_ORIGINS`, `ALLOW_DEV_ORIGINS`) require `--keep-vars`; a plain
+  `wrangler deploy` can remove them.
 - Put server secrets in Worker secrets:
 
   ```sh
   bunx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-  bunx wrangler secret put TWELVE_DATA_API_KEY      # optional: enables live quotes
-  bunx wrangler secret put REALTIME_TICKET_SECRET   # required for realtime streaming
-  bunx wrangler secret put MARKETDATA_TICKET_SECRET # required for direct VPS XAU/USD
+  bunx wrangler secret put MERIDIAN_API_KEY         # required for live market data
   bunx wrangler secret put TERMINAL_TOKEN_SECRET    # required for the terminal API
-  bunx wrangler secret put DEV_FEED_SECRET          # required for dev feed ingest
   ```
 
-- The MarketDatafeed VPS must use the same `MARKETDATA_TICKET_SECRET`, list the
-  allowed Worker origins in `MARKETDATA_ALLOWED_ORIGINS`, and keep the same
-  `MARKETDATA_SERVER_IDS` allowlist. Missing VPS configuration rejects ticket
-  connections; the terminal then falls back to REST/cached/simulated quotes.
-
-- `wrangler.jsonc` declares the `MARKET_STREAM` Durable Object binding and its
-  `v2` SQLite migration. `exports.cloudflare.ts` re-exports `MarketStream` so Nitro
-  includes the class in the Worker bundle. Confirm both the generated
-  `.output/server/wrangler.json` binding and the `MarketStream` export after builds.
-- Active WebSocket clients can keep an existing Durable Object on the previous
-  code after a deploy. Bump `MARKET_FEED_INSTANCE` in `src/lib/market-feed.ts`
-  when changing feed or relay behavior, then hard-refresh clients so they join
-  the new instance.
+- Configure Meridian's origin allowlist with the production Worker origin and
+  local development origin. The browser connects directly to Meridian WSS using
+  a token obtained immediately before connection.
 
 - Local Cloudflare preview uses `.dev.vars` for the same values.
 - `vite.config.ts` redirects TanStack Start's server entry to `src/server.ts`
@@ -906,27 +844,18 @@ Cloudflare Worker above is the current production deployment.
 - **Limit fills:** pending orders are evaluated only when the account is polled
   (`getAccount`, every 5 seconds while the terminal is open). There is no
   background scheduler, so fills can be delayed while the app is closed.
-- **Market feed:** allowlisted servers read Exness quotes/candles/ticks first;
-  other accounts use Twelve Data when configured, otherwise a deterministic
-  synthetic engine. `XAU/USD` and `BTC/USD` can use realtime WebSocket ticks;
-  other symbols are REST/cached/simulated. There is no true tick-level bid/ask,
-  depth, swap, commission or spread-widening model; bid/ask is provider mid ± the
-  fixed instrument spread.
-- **Fallback trading:** when Exness is unavailable or stale for an allowlisted
-  server, remaining symbols are marked `feedFallback` and trading is blocked for
-  new orders, limit fills, SL/TP and fund movements. Manual closes stay available.
+- **Market feed:** Meridian supplies the entitled dynamic catalogue, REST
+  snapshots, candles and realtime bid/ask ticks. There is no depth, swap,
+  commission or spread-widening model.
+- **Fallback trading:** when Meridian is unavailable, remaining symbols are
+  marked `feedFallback` and trading is blocked for new orders, limit fills, SL/TP
+  and fund movements. Manual closes stay available.
   `ALLOW_FALLBACK_TRADING=true` is for private development only.
-- **Realtime scope:** the trial Twelve Data WebSocket only covers `XAU/USD` and
-  `BTC/USD` in this app; additional realtime symbols require a paid plan. Exness
-  ticks are server-scoped to allowlisted servers. If the relay is unavailable,
-  the terminal keeps the REST/cached/simulated quote path.
-- **Feed limits:** caches are per Worker isolate and reset on deploy. Many symbols
-  polled frequently need a paid Twelve Data plan; when the plan, key or symbol
-  coverage fails, the UI falls back to cached or simulated data (shown in the
-  terminal badge). The Exness `MarketStream` Durable Object writes closed bars to
-  SQLite, so it needs a Workers plan with sufficient Durable Object row limits;
-  `/feed-status` exposes `rowsWrittenToday` / `rowsWrittenPerDayEstimate`.
-  Index provider symbols are configured but not verified against a paid plan.
+- **Realtime scope:** every active terminal opens one Meridian connection and
+  subscribes to its selected/watchlist/open-position symbols. Multiple browser
+  tabs consume multiple provider connections.
+- **Feed limits:** caches are per Worker isolate and reset on deploy. The full
+  catalogue and high-frequency polling remain subject to Meridian plan limits.
 - **Chart library:** Lightweight Charts is the standalone TradingView library. Full
   TradingView Advanced Charts (licensed) would require replacing the chart
   component and adding a UDF-compatible datafeed endpoint.

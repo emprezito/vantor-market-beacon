@@ -6,6 +6,15 @@ import { isChartInterval, isInstrument, type ChartInterval } from "./market-data
 
 type AuthContext = { supabase: SupabaseClient<Database>; userId: string };
 
+export const HOMEPAGE_MARKET_SYMBOLS = [
+  "EURUSD",
+  "XAUUSD",
+  "GBPUSD",
+  "US30",
+  "BTCUSD",
+  "USDJPY",
+] as const;
+
 function validateAccountId(value: unknown): string | null {
   if (value == null) return null;
   if (typeof value !== "string" || !/^[0-9a-f-]{36}$/i.test(value)) {
@@ -16,9 +25,16 @@ function validateAccountId(value: unknown): string | null {
 
 function validateSymbols(input: { symbols: string[]; accountId?: string | null }) {
   if (!Array.isArray(input.symbols)) throw new Error("Symbols are required");
-  const symbols = Array.from(new Set(input.symbols.filter((symbol) => typeof symbol === "string" && isInstrument(symbol))));
-  if (symbols.length === 0) throw new Error("No supported market symbols requested");
-  if (symbols.length > 21) throw new Error("Too many market symbols requested");
+  const symbols = Array.from(
+    new Set(
+      input.symbols
+        .filter((symbol): symbol is string => typeof symbol === "string")
+        .map((symbol) => symbol.trim())
+        .filter(Boolean),
+    ),
+  );
+  if (symbols.length === 0) throw new Error("No market symbols requested");
+  if (symbols.length > 100) throw new Error("Too many market symbols requested");
   return { symbols, accountId: validateAccountId(input.accountId) };
 }
 
@@ -37,12 +53,31 @@ export const getMarketQuotes = createServerFn({ method: "POST" })
   .inputValidator(validateSymbols)
   .handler(async ({ data, context }) => {
     const { loadQuotes } = await import("./market-data.server");
-    const serverId = await accountServerId(context, data.accountId);
+    const { loadMeridianCatalog } = await import("./meridian.server");
+    await accountServerId(context, data.accountId);
+    await loadMeridianCatalog().catch(() => null);
+    if (data.symbols.some((symbol) => !isInstrument(symbol))) {
+      throw new Error("Unknown market symbol");
+    }
     return {
-      quotes: await loadQuotes(data.symbols, { serverId }),
+      quotes: await loadQuotes(data.symbols),
       fetchedAt: Date.now(),
     };
   });
+
+export const getMarketCatalog = createServerFn({ method: "GET" }).handler(async () => {
+  const { loadMeridianCatalog } = await import("./meridian.server");
+  const catalog = await loadMeridianCatalog();
+  return { instruments: catalog.instruments, fetchedAt: catalog.fetchedAt };
+});
+
+export const getHomepageQuotes = createServerFn({ method: "GET" }).handler(async () => {
+  const { loadQuotes } = await import("./market-data.server");
+  return {
+    quotes: await loadQuotes([...HOMEPAGE_MARKET_SYMBOLS]),
+    fetchedAt: Date.now(),
+  };
+});
 
 export const getMarketCandles = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -53,10 +88,12 @@ export const getMarketCandles = createServerFn({ method: "POST" })
       points?: number;
       accountId?: string | null;
     }) => {
-      if (typeof input.symbol !== "string" || !isInstrument(input.symbol)) throw new Error("Unknown instrument");
+      if (typeof input.symbol !== "string" || !input.symbol.trim())
+        throw new Error("Unknown instrument");
       if (!isChartInterval(input.interval)) throw new Error("Invalid chart interval");
       const points = input.points == null ? 180 : Math.round(input.points);
-      if (!Number.isFinite(points) || points < 20 || points > 500) throw new Error("Invalid candle count");
+      if (!Number.isFinite(points) || points < 20 || points > 500)
+        throw new Error("Invalid candle count");
       return {
         symbol: input.symbol,
         interval: input.interval,
@@ -67,6 +104,9 @@ export const getMarketCandles = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { loadCandles } = await import("./market-data.server");
-    const serverId = await accountServerId(context, data.accountId);
-    return loadCandles(data.symbol, data.interval, data.points, { serverId });
+    const { loadMeridianCatalog } = await import("./meridian.server");
+    await accountServerId(context, data.accountId);
+    await loadMeridianCatalog().catch(() => null);
+    if (!isInstrument(data.symbol)) throw new Error("Unknown instrument");
+    return loadCandles(data.symbol, data.interval, data.points);
   });

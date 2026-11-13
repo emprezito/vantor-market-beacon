@@ -2,10 +2,8 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getMarketCandles, getMarketQuotes } from "@/lib/market.functions";
-import { isMarketDatafeedSymbol } from "@/lib/marketdatafeed";
 import { mergeQuotes, type ChartInterval } from "@/lib/market-data";
-import { useMarketDatafeedQuotes } from "./use-marketdatafeed-quotes";
-import { useRealtimeQuotes } from "./use-realtime-quotes";
+import { useMeridianQuotes } from "./use-meridian-quotes";
 
 export function useMarketQuotes(
   symbols: string[],
@@ -26,32 +24,11 @@ export function useMarketQuotes(
     placeholderData: (previous) => previous,
   });
 
-  const marketDatafeedSymbols = useMemo(() => {
-    if (!query.data?.quotes || query.isPlaceholderData) return [];
-    return unique.filter(
-      (symbol) => isMarketDatafeedSymbol(symbol) && query.data?.quotes[symbol]?.feed !== "exness",
-    );
-  }, [unique, query.data?.quotes, query.isPlaceholderData]);
-  const realtimeSymbols = useMemo(
-    () =>
-      unique.filter(
-        (symbol) =>
-          !isMarketDatafeedSymbol(symbol) && query.data?.quotes[symbol]?.feed !== "exness",
-      ),
-    [unique, query.data?.quotes],
+  const realtime = useMeridianQuotes(unique, accountId);
+  const quotes = useMemo(
+    () => mergeQuotes(query.data?.quotes, realtime.quotes),
+    [query.data?.quotes, realtime.quotes],
   );
-  const realtime = useRealtimeQuotes(realtimeSymbols, accountId);
-  const marketDatafeed = useMarketDatafeedQuotes(marketDatafeedSymbols, accountId);
-
-  const quotes = useMemo(() => {
-    const live = Object.fromEntries(
-      Object.entries(realtime.quotes).filter(
-        ([symbol]) =>
-          !isMarketDatafeedSymbol(symbol) && query.data?.quotes[symbol]?.feed !== "exness",
-      ),
-    );
-    return mergeQuotes(query.data?.quotes, live, marketDatafeed.quotes);
-  }, [query.data?.quotes, realtime.quotes, marketDatafeed.quotes]);
 
   return {
     quotes,
@@ -59,8 +36,7 @@ export function useMarketQuotes(
     isLoading: query.isPending,
     error: query.error,
     realtime: realtime.status,
-    marketDatafeed: marketDatafeed.status,
-    marketDatafeedError: marketDatafeed.error,
+    realtimeError: realtime.error,
   };
 }
 

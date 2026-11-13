@@ -333,7 +333,10 @@ export async function processAccount(
 ) {
   const initial = await snapshot(db, account);
   const now = Date.now();
-  const initialQuotes = await loadQuoteMap(initial.positions.map((position) => position.symbol), account.server_id);
+  const initialQuotes = await loadQuoteMap(
+    initial.positions.map((position) => position.symbol),
+    account.server_id,
+  );
   for (const position of initial.positions) {
     const quote = quoteFor(initialQuotes, position.symbol, now);
     if (isStaleFeedQuote(quote)) continue;
@@ -435,6 +438,7 @@ export async function openMarketOrder(
     [order.symbol, ...state.positions.map((position) => position.symbol)],
     account.server_id,
   );
+  if (!quotes[order.symbol]) throw new Error("Unknown instrument");
   assertTradableQuotes(quotes);
   const quote = quoteFor(quotes, order.symbol, now);
   const price = openPriceFromQuote(order.side, quote);
@@ -474,6 +478,7 @@ export async function placeLimitOrder(
   const state = await requireTradable(db, account);
   const now = Date.now();
   const quotes = await loadQuoteMap([order.symbol], account.server_id);
+  if (!quotes[order.symbol]) throw new Error("Unknown instrument");
   assertTradableQuotes(quotes);
   const quote = quoteFor(quotes, order.symbol, now);
   if (order.side === "buy" && order.limitPrice >= quote.ask) {
@@ -581,7 +586,10 @@ export async function moveFunds(
 ) {
   const state = await requireTradable(db, account);
   const now = Date.now();
-  const quotes = await loadQuoteMap(state.positions.map((position) => position.symbol), account.server_id);
+  const quotes = await loadQuoteMap(
+    state.positions.map((position) => position.symbol),
+    account.server_id,
+  );
   if (!fallbackTradingAllowed() && hasFallbackQuotes(quotes)) {
     throw new Error(FALLBACK_MARKET_MESSAGE);
   }

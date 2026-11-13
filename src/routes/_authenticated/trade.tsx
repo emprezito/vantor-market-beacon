@@ -1,10 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Star } from "lucide-react";
-import { INSTRUMENTS, fmt, getInstrument } from "@/lib/market";
+import { fmt, getInstrument } from "@/lib/market";
 import {
   CHART_INDICATOR_KEYS,
   CHART_INDICATOR_LABELS,
@@ -19,12 +19,12 @@ import {
   quoteFor,
   type ChartInterval,
 } from "@/lib/market-data";
-import { isRealtimeSymbol } from "@/lib/realtime-symbols";
 import { calcMargin, calcPnl, closePriceFromQuote, type Side } from "@/lib/trading";
 import { openTrade, placeLimitOrder } from "@/lib/trading.functions";
 import { useNow } from "@/hooks/use-session";
 import { useAccount } from "@/hooks/use-account";
 import { useMarketCandles, useMarketQuotes } from "@/hooks/use-market-data";
+import { useMarketCatalog } from "@/hooks/use-market-catalog";
 import { useWatchlist } from "@/hooks/use-watchlist";
 import { formatMoney } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,7 @@ function Trade() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: acc, activeAccount, isPending, error, refetch } = useAccount();
+  const { instruments } = useMarketCatalog();
   const { symbols: watchSymbols, isFavourite, toggle } = useWatchlist();
   const [symbol, setSymbol] = useState("EURUSD");
   const [timeframe, setTimeframe] = useState<ChartInterval>("5min");
@@ -66,7 +67,7 @@ function Trade() {
     quotes: liveQuotes,
     isLoading: quotesLoading,
     realtime: realtimeStatus,
-    marketDatafeed: marketDatafeedStatus,
+    realtimeError,
   } = useMarketQuotes(feedSymbols, activeAccount?.id ?? null);
   const {
     candles,
@@ -146,72 +147,40 @@ function Trade() {
   const feedBlocked = isStaleFeedQuote(q);
   const fallbackBlocked = isFallbackQuote(q);
   const entriesBlocked = feedBlocked || fallbackBlocked;
-  const streaming =
-    q.feed === "marketdatafeed"
-      ? marketDatafeedStatus === "live"
-      : q.feed !== "exness" && isRealtimeSymbol(symbol) && realtimeStatus === "live";
-  const feedLabel =
-    q.feed === "exness"
-      ? q.marketOpen === false
-        ? "Dev feed �� closed"
-        : feedBlocked
-          ? "Dev feed stale"
-          : "Dev feed �� Exness MT5"
-      : q.feed === "marketdatafeed"
-        ? marketDatafeedStatus === "live"
-          ? "Streaming"
-          : marketDatafeedStatus === "stale"
-            ? "VPS stale"
-            : marketDatafeedStatus === "error"
-              ? "VPS feed error"
-              : marketDatafeedStatus === "disconnected"
-                ? "VPS offline"
-                : "VPS connecting"
-        : q.feedFallback
-          ? q.source === "simulated"
-            ? "Market data unavailable"
-            : "Twelve fallback"
-          : streaming
-            ? "Streaming"
-            : quotesLoading && q.source === "simulated"
-              ? "Connecting"
-              : q.source === "live"
-                ? "Live feed"
-                : q.source === "cached"
-                  ? "Cached feed"
-                  : "Simulated feed";
+  const streaming = q.feed === "meridian" && realtimeStatus === "live";
+  const feedLabel = q.feedFallback
+    ? "Market data unavailable"
+    : feedBlocked || realtimeStatus === "stale"
+      ? "Meridian stale"
+      : streaming
+        ? "Streaming"
+        : realtimeStatus === "unauthorized" || realtimeStatus === "error"
+          ? "Meridian error"
+          : quotesLoading && q.source === "simulated"
+            ? "Connecting"
+            : q.source === "live"
+              ? "Meridian REST"
+              : q.source === "cached"
+                ? "Cached feed"
+                : "Simulated feed";
   const feedTone =
-    q.feed === "exness"
-      ? q.marketOpen === false
-        ? "bg-muted text-muted-foreground"
-        : feedBlocked
-          ? "bg-amber-500/15 text-amber-700"
-          : "bg-accent/15 text-accent"
-      : q.feed === "marketdatafeed"
-        ? marketDatafeedStatus === "live"
+    q.feedFallback || realtimeStatus === "unauthorized" || realtimeStatus === "error"
+      ? "bg-destructive/15 text-destructive"
+      : feedBlocked || realtimeStatus === "stale" || realtimeStatus === "reconnecting"
+        ? "bg-amber-500/15 text-amber-700"
+        : q.source === "live"
           ? "bg-accent/15 text-accent"
-          : marketDatafeedStatus === "error"
-            ? "bg-destructive/15 text-destructive"
-            : marketDatafeedStatus === "disconnected"
-              ? "bg-muted text-muted-foreground"
-              : "bg-amber-500/15 text-amber-700"
-        : q.feedFallback
-          ? q.source === "simulated"
-            ? "bg-destructive/15 text-destructive"
-            : "bg-amber-500/15 text-amber-700"
-          : q.source === "live"
-            ? "bg-accent/15 text-accent"
-            : q.source === "cached"
-              ? "bg-muted text-muted-foreground"
-              : "bg-amber-500/15 text-amber-700";
+          : q.source === "cached"
+            ? "bg-muted text-muted-foreground"
+            : "bg-amber-500/15 text-amber-700";
   const money = (n: number) => formatMoney(n, currency);
   const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
   const limitValid =
     orderType === "market" ||
     (limitPrice.trim() !== "" && Number.isFinite(Number(limitPrice)) && Number(limitPrice) > 0);
   const watch = watchSymbols
-    .map((s) => INSTRUMENTS.find((i) => i.symbol === s))
-    .filter((i): i is (typeof INSTRUMENTS)[number] => i != null);
+    .map((s) => instruments.find((i) => i.symbol === s))
+    .filter((i): i is (typeof instruments)[number] => i != null);
   const chooseType = (next: "market" | "limit") => {
     setOrderType(next);
     if (next === "limit" && limitPrice.trim() === "") setLimitPrice(fmt(symbol, q.mid));
@@ -222,6 +191,12 @@ function Trade() {
     setTp("");
     setLimitPrice(orderType === "limit" ? fmt(next, quoteFor(quotes, next, Date.now()).mid) : "");
   };
+
+  useEffect(() => {
+    if (instruments.length > 0 && !instruments.some((instrument) => instrument.symbol === symbol)) {
+      setSymbol(instruments[0]!.symbol);
+    }
+  }, [instruments, symbol]);
 
   if (isPending)
     return (
@@ -282,7 +257,7 @@ function Trade() {
               onChange={(e) => selectSymbol(e.target.value)}
               className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
             >
-              {INSTRUMENTS.map((i) => (
+              {instruments.map((i) => (
                 <option key={i.symbol} value={i.symbol}>
                   {i.symbol} · {i.name}
                 </option>
@@ -351,13 +326,9 @@ function Trade() {
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${feedTone}`}
                   title={
-                    q.feed === "exness"
-                      ? "Exness MT5 dev feed. New orders pause when the feed is stale or the market is closed."
-                      : q.feedFallback
-                        ? "The Exness bridge is stale or unavailable; this quote comes from Twelve Data fallback data."
-                        : q.source === "simulated"
-                          ? "Live feed unavailable. Add TWELVE_DATA_API_KEY to the Worker, or check the provider plan and symbol coverage."
-                          : undefined
+                    q.feedFallback
+                      ? "Meridian is unavailable for this symbol. Trading is paused."
+                      : (realtimeError ?? undefined)
                   }
                 >
                   {feedLabel}
@@ -389,7 +360,7 @@ function Trade() {
               ))}
             </div>
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Candles: {candleFeed === "exness" ? "Exness MT5" : (candleSource ?? "loading")}
+              Candles: {candleFeed === "meridian" ? "Meridian MT5" : (candleSource ?? "loading")}
             </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1">
@@ -507,8 +478,7 @@ function Trade() {
           </p>
           {feedBlocked && (
             <p className="text-xs text-amber-700">
-              Exness feed is stale or the market is closed. New orders are paused; closing positions
-              remains available.
+              Meridian pricing is stale. New orders are paused; closing positions remains available.
             </p>
           )}
           {fallbackBlocked && (

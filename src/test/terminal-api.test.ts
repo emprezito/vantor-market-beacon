@@ -11,6 +11,7 @@ vi.mock("@/lib/account-auth.server", () => ({
   INVALID_LOGIN_MESSAGE: "Invalid server, login or password",
 }));
 vi.mock("@/lib/market-data.server", () => ({ loadQuotes: vi.fn(), loadCandles: vi.fn() }));
+vi.mock("@/lib/meridian.server", () => ({ loadMeridianCatalog: vi.fn() }));
 vi.mock("@/lib/trading-service.server", () => ({
   TRADING_ACCOUNT_SELECT:
     "id, user_id, server_id, login, nickname, label, server, currency, leverage, access_role, status, balance, session_epoch",
@@ -26,7 +27,6 @@ vi.mock("@/lib/terminal-api/auth", async () => {
   return {
     authenticateTerminalRequest: vi.fn(),
     authenticateOptionalTerminalRequest: vi.fn(),
-    authenticateStreamTicket: vi.fn(),
     assertTrader: (claims: { role: string }, account?: { access_role: string | null }) => {
       if (claims.role === "investor" || account?.access_role === "investor") {
         throw new ApiError(403, "read_only_account", "This is an investor (read-only) account");
@@ -39,9 +39,9 @@ import { authenticateTradingAccount, recordLoginFailure } from "@/lib/account-au
 import { loadCandles, loadQuotes } from "@/lib/market-data.server";
 import {
   authenticateOptionalTerminalRequest,
-  authenticateStreamTicket,
   authenticateTerminalRequest,
 } from "@/lib/terminal-api/auth";
+import { loadMeridianCatalog } from "@/lib/meridian.server";
 import { handleTerminalApi } from "@/lib/terminal-api/router";
 import { terminalAdmin } from "@/lib/terminal-api/supabase";
 import {
@@ -195,6 +195,7 @@ beforeEach(() => {
   vi.mocked(terminalAdmin).mockReturnValue(fakeAdmin());
   vi.mocked(authenticateTerminalRequest).mockResolvedValue({ account, claims });
   vi.mocked(authenticateOptionalTerminalRequest).mockResolvedValue(null);
+  vi.mocked(loadMeridianCatalog).mockResolvedValue({} as never);
   vi.mocked(authenticateTradingAccount).mockResolvedValue({
     account: {
       id: accountId,
@@ -210,7 +211,14 @@ beforeEach(() => {
   vi.mocked(recordLoginFailure).mockResolvedValue({ blocked: false, retryAfterSeconds: 0 });
   vi.mocked(getAccountView).mockResolvedValue(view);
   vi.mocked(loadQuotes).mockResolvedValue({
-    EURUSD: { symbol: "EURUSD", bid: 1.1, ask: 1.1002, mid: 1.1001, ts: 123, source: "live" },
+    EURUSD: {
+      symbol: "EURUSD",
+      bid: 1.1,
+      ask: 1.1002,
+      mid: 1.1001,
+      ts: Date.now(),
+      source: "live",
+    },
     BTCUSD: { symbol: "BTCUSD", bid: 60000, ask: 60010, mid: 60005, ts: 123, source: "simulated" },
   });
   vi.mocked(loadCandles).mockResolvedValue({
@@ -418,23 +426,22 @@ describe("terminal API", () => {
     expect(response?.status).toBe(200);
     expect(await body(response)).toEqual({
       quotes: [
-        { symbol: "EURUSD", bid: 1.1, ask: 1.1002, ts: 123, stale: false },
+        { symbol: "EURUSD", bid: 1.1, ask: 1.1002, ts: expect.any(Number), stale: false },
         { symbol: "BTCUSD", bid: 60000, ask: 60010, ts: 123, stale: true },
       ],
     });
   });
 
-  it("returns Exness quote metadata and marks a closed market stale", async () => {
+  it("returns Meridian quote metadata and marks an old quote stale", async () => {
     vi.mocked(loadQuotes).mockResolvedValueOnce({
       XAUUSD: {
         symbol: "XAUUSD",
         bid: 2_400,
         ask: 2_400.4,
         mid: 2_400.2,
-        ts: 123,
+        ts: Date.now() - 5_001,
         source: "live",
-        feed: "exness",
-        marketOpen: false,
+        feed: "meridian",
         change: 12.5,
         high: 2_410,
         low: 2_390,
@@ -448,10 +455,9 @@ describe("terminal API", () => {
           symbol: "XAUUSD",
           bid: 2_400,
           ask: 2_400.4,
-          ts: 123,
+          ts: expect.any(Number),
           stale: true,
-          feed: "exness",
-          marketOpen: false,
+          feed: "meridian",
           change: 12.5,
           high: 2_410,
           low: 2_390,
@@ -474,13 +480,13 @@ describe("terminal API", () => {
     });
   });
 
-  it("returns the feed tag for Exness candles", async () => {
+  it("returns the feed tag for Meridian candles", async () => {
     vi.mocked(loadCandles).mockResolvedValueOnce({
       symbol: "GER40",
       interval: "1h",
       candles: [{ time: 1_700_000_000, open: 18_000, high: 18_100, low: 17_950, close: 18_050 }],
       source: "live",
-      feed: "exness",
+      feed: "meridian",
       fetchedAt: 123,
     });
     const response = await handleTerminalApi(request("/candles?symbol=GER40&interval=1h"), env);
@@ -491,42 +497,9 @@ describe("terminal API", () => {
       candles: [{ time: 1_700_000_000, open: 18_000, high: 18_100, low: 17_950, close: 18_050 }],
       source: "live",
       stale: false,
-      feed: "exness",
+      feed: "meridian",
       fetchedAt: 123,
     });
-  });
-
-  it("issues a short-lived stream ticket", async () => {
-    const response = await handleTerminalApi(request("/stream-ticket", { method: "POST" }), env);
-    expect(response?.status).toBe(200);
-    const payload = await body(response);
-    expect(payload["ticket"]).toBeTypeOf("string");
-    expect(payload["expiresAt"]).toBeTypeOf("number");
-  });
-
-  it("requires a websocket upgrade for the stream", async () => {
-    const response = await handleTerminalApi(request("/stream"), env);
-    expect(response?.status).toBe(426);
-  });
-
-  it("forwards an authenticated stream to the market stream durable object", async () => {
-    vi.mocked(authenticateStreamTicket).mockResolvedValue({
-      account,
-      claims: { ...claims, typ: "stream" },
-    });
-    const fetch = vi.fn(async () => new Response(null, { status: 200 }));
-    const response = await handleTerminalApi(
-      request("/stream?ticket=test", { headers: { upgrade: "websocket" } }),
-      {
-        ...env,
-        MARKET_STREAM: {
-          idFromName: () => "stream-id",
-          get: () => ({ fetch }),
-        },
-      },
-    );
-    expect(response?.status).toBe(200);
-    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it("rejects every mutation for an investor", async () => {

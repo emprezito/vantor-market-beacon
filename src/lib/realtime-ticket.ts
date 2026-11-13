@@ -1,17 +1,4 @@
 const encoder = new TextEncoder();
-const TICKET_TTL_MS = 120_000;
-
-export type RealtimeTicket = {
-  ticket: string;
-  expiresAt: number;
-};
-
-export type RealtimeTicketClaims = {
-  userId: string;
-  accountId: string;
-  serverId: string;
-  expiresAt: number;
-};
 
 export function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -46,42 +33,4 @@ export function signaturesMatch(left: string, right: string): boolean {
     mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
   }
   return mismatch === 0;
-}
-
-export async function createRealtimeTicket(
-  account: { userId: string; accountId: string; serverId: string },
-  secret: string,
-): Promise<RealtimeTicket> {
-  if (!account.userId) throw new Error("Missing user ID");
-  if (!account.accountId) throw new Error("Missing account ID");
-  if (!account.serverId) throw new Error("Missing server ID");
-  if (!secret) throw new Error("Missing realtime ticket secret");
-
-  const expiresAt = Date.now() + TICKET_TTL_MS;
-  const payload = `${account.userId}.${account.accountId}.${account.serverId}.${expiresAt}`;
-  return { ticket: `${payload}.${await signHmacPayload(payload, secret)}`, expiresAt };
-}
-
-export async function verifyRealtimeTicket(
-  ticket: string,
-  secret: string,
-): Promise<RealtimeTicketClaims | null> {
-  if (!ticket || !secret) return null;
-
-  const parts = ticket.split(".");
-  if (parts.length !== 5) return null;
-
-  const [userId, accountId, serverId, expiresRaw, signature] = parts;
-  if (!userId || !accountId || !serverId || !expiresRaw || !signature) return null;
-
-  const expiresAt = Number(expiresRaw);
-  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
-
-  const expected = await signHmacPayload(
-    `${userId}.${accountId}.${serverId}.${expiresRaw}`,
-    secret,
-  );
-  if (!signaturesMatch(signature, expected)) return null;
-
-  return { userId, accountId, serverId, expiresAt };
 }

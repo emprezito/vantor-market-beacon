@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { INSTRUMENTS } from "@/lib/market";
+import { isInstrument } from "@/lib/market-data";
 
 const STORAGE_KEY = "vantor.watchlist";
 
 export const DEFAULT_WATCHLIST = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "US30", "BTCUSD"];
-
-const known = new Set(INSTRUMENTS.map((i) => i.symbol));
 
 function readWatchlist(): string[] {
   if (typeof window === "undefined") return DEFAULT_WATCHLIST;
@@ -14,7 +12,7 @@ function readWatchlist(): string[] {
     if (raw == null) return DEFAULT_WATCHLIST;
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return DEFAULT_WATCHLIST;
-    return parsed.filter((s): s is string => typeof s === "string" && known.has(s));
+    return parsed.filter((s): s is string => typeof s === "string" && Boolean(s.trim()));
   } catch {
     return DEFAULT_WATCHLIST;
   }
@@ -40,8 +38,10 @@ export function useWatchlist() {
   }, []);
 
   const toggle = useCallback((symbol: string) => {
-    if (!known.has(symbol)) return;
-    setSymbols((prev) => (prev.includes(symbol) ? prev.filter((s) => s !== symbol) : [...prev, symbol]));
+    if (!isInstrument(symbol)) return;
+    setSymbols((prev) =>
+      prev.includes(symbol) ? prev.filter((s) => s !== symbol) : [...prev, symbol],
+    );
   }, []);
 
   const isFavourite = useCallback((symbol: string) => symbols.includes(symbol), [symbols]);

@@ -1,7 +1,8 @@
-import { INSTRUMENTS, getInstrument, midPrice, quote } from "./market";
+import { findInstrument, getInstrument, midPrice, quote } from "./market";
+import { MERIDIAN_QUOTE_STALE_MS } from "./meridian";
 
 export type FeedSource = "live" | "cached" | "simulated";
-export type MarketFeed = "twelve" | "exness" | "marketdatafeed";
+export type MarketFeed = "meridian";
 
 export type MarketQuote = {
   symbol: string;
@@ -9,6 +10,7 @@ export type MarketQuote = {
   ask: number;
   mid: number;
   ts: number;
+  receivedAt?: number;
   source: FeedSource;
   feed?: MarketFeed;
   feedFallback?: boolean;
@@ -55,31 +57,8 @@ export const CHART_INTERVALS: { value: ChartInterval; label: string; ms: number 
   { value: "1month", label: "1M", ms: 30 * 24 * 60 * 60_000 },
 ];
 
-export const PROVIDER_SYMBOLS: Record<string, string> = {
-  EURUSD: "EUR/USD",
-  GBPUSD: "GBP/USD",
-  USDJPY: "USD/JPY",
-  USDCAD: "USD/CAD",
-  USDCHF: "USD/CHF",
-  AUDUSD: "AUD/USD",
-  NZDUSD: "NZD/USD",
-  EURGBP: "EUR/GBP",
-  EURJPY: "EUR/JPY",
-  GBPJPY: "GBP/JPY",
-  AUDJPY: "AUD/JPY",
-  XAUUSD: "XAU/USD",
-  XAGUSD: "XAG/USD",
-  USOIL: "WTI/USD",
-  US30: "DJI",
-  NAS100: "NDX",
-  SPX500: "SPX",
-  UK100: "FTSE",
-  BTCUSD: "BTC/USD",
-  ETHUSD: "ETH/USD",
-};
-
 export function isInstrument(symbol: string): boolean {
-  return INSTRUMENTS.some((instrument) => instrument.symbol === symbol);
+  return findInstrument(symbol) != null;
 }
 
 export function intervalMs(interval: ChartInterval): number {
@@ -90,24 +69,6 @@ export function isChartInterval(value: unknown): value is ChartInterval {
   return typeof value === "string" && CHART_INTERVALS.some((item) => item.value === value);
 }
 
-export function withSpread(
-  symbol: string,
-  mid: number,
-  ts: number,
-  source: FeedSource,
-): MarketQuote {
-  const instrument = getInstrument(symbol);
-  return {
-    symbol,
-    bid: mid - instrument.spread / 2,
-    ask: mid + instrument.spread / 2,
-    mid,
-    ts,
-    source,
-    feed: "twelve",
-  };
-}
-
 export function syntheticQuote(symbol: string, ts: number): MarketQuote {
   const q = quote(symbol, ts);
   return { symbol, bid: q.bid, ask: q.ask, mid: q.mid, ts, source: "simulated" };
@@ -115,12 +76,27 @@ export function syntheticQuote(symbol: string, ts: number): MarketQuote {
 
 export function quoteFor(quotes: QuoteMap | undefined, symbol: string, ts: number): MarketQuote {
   const provided = quotes?.[symbol];
-  if (provided && provided.source !== "simulated") return provided;
+  if (provided && (provided.source !== "simulated" || provided.feedFallback)) return provided;
+  if (findInstrument(symbol)?.synthetic === false) {
+    return {
+      symbol,
+      bid: 0,
+      ask: 0,
+      mid: 0,
+      ts,
+      source: "simulated",
+      feed: "meridian",
+      feedFallback: true,
+    };
+  }
   return syntheticQuote(symbol, ts);
 }
 
 export function isStaleFeedQuote(quote: MarketQuote): boolean {
-  return quote.feed === "exness" && (quote.source !== "live" || quote.marketOpen === false);
+  if (quote.marketOpen === false) return true;
+  if (quote.source === "simulated") return false;
+  if (quote.source !== "live") return true;
+  return Date.now() - quote.ts > MERIDIAN_QUOTE_STALE_MS;
 }
 
 export function isFallbackQuote(quote: MarketQuote): boolean {

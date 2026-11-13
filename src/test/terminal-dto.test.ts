@@ -88,7 +88,7 @@ describe("terminal account view FX conversion", () => {
           bid: 1.2,
           ask: 1.2002,
           mid: 1.2001,
-          feed: "twelve" as const,
+          feed: "meridian" as const,
           feedFallback: true,
         },
       },

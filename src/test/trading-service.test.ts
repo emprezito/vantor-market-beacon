@@ -7,7 +7,7 @@ vi.mock("@/lib/market-data.server", () => ({
     Object.fromEntries(
       symbols.map((symbol) => [
         symbol,
-        { symbol, bid: 1.101, ask: 1.1012, mid: 1.1011, ts: 1, source: "live" },
+        { symbol, bid: 1.101, ask: 1.1012, mid: 1.1011, ts: Date.now(), source: "live" },
       ]),
     ),
   ),
@@ -128,8 +128,7 @@ describe("trading service feed guards", () => {
     mid: 1.1011,
     ts: Date.now(),
     source: "cached" as const,
-    feed: "exness" as const,
-    marketOpen: true,
+    feed: "meridian" as const,
   };
   const fallbackQuote = {
     symbol: "EURUSD",
@@ -138,7 +137,7 @@ describe("trading service feed guards", () => {
     mid: 1.1011,
     ts: Date.now(),
     source: "live" as const,
-    feed: "twelve" as const,
+    feed: "meridian" as const,
     feedFallback: true,
   };
   const accountRow = { balance: 100, status: "active", access_role: "trader", leverage: 100 };
@@ -165,7 +164,7 @@ describe("trading service feed guards", () => {
     created_at: "2026-10-27T00:00:00.000Z",
   };
 
-  it("rejects new market orders when the Exness quote is stale", async () => {
+  it("rejects new market orders when the Meridian quote is stale", async () => {
     vi.mocked(loadQuotes).mockResolvedValueOnce({ EURUSD: staleQuote });
     const admin = { rpc: vi.fn() } as unknown as SupabaseClient<Database>;
 
@@ -180,7 +179,7 @@ describe("trading service feed guards", () => {
     expect(admin.rpc).not.toHaveBeenCalled();
   });
 
-  it("rejects position modifications when the Exness quote is stale", async () => {
+  it("rejects position modifications when the Meridian quote is stale", async () => {
     vi.mocked(loadQuotes).mockResolvedValueOnce({ EURUSD: staleQuote });
     const position = {
       id: "55555555-5555-4555-8555-555555555555",
