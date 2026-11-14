@@ -276,4 +276,36 @@ describe("trading service feed guards", () => {
 
     expect(admin.rpc).toHaveBeenCalled();
   });
+
+  it("allows fresh weekend crypto trading when an unrelated forex position is stale", async () => {
+    vi.mocked(loadFxRate).mockResolvedValueOnce(1);
+    vi.mocked(loadQuotes).mockResolvedValueOnce({
+      EURUSD: staleQuote,
+      BTCUSD: {
+        symbol: "BTCUSD",
+        bid: 65_221,
+        ask: 65_228,
+        mid: 65_224.5,
+        ts: Date.now(),
+        source: "live",
+        feed: "meridian",
+      },
+    });
+    const admin = {
+      rpc: vi.fn(async () => ({ data: { position_id: "btc-position" }, error: null })),
+    } as unknown as SupabaseClient<Database>;
+
+    await openMarketOrder(fakeDb({ ...accountRow, balance: 100_000 }, [position]), admin, account, {
+      symbol: "BTCUSD",
+      side: "buy",
+      lots: 0.01,
+      stopLoss: null,
+      takeProfit: null,
+    });
+
+    expect(admin.rpc).toHaveBeenCalledWith(
+      "apply_demo_operation",
+      expect.objectContaining({ p_action: "open" }),
+    );
+  });
 });

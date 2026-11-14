@@ -25,7 +25,7 @@ const quotes = {
     bid: 1.101,
     ask: 1.1012,
     mid: 1.1011,
-    ts: 1,
+    ts: Date.now(),
     source: "live" as const,
   },
 };

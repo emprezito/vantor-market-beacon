@@ -131,7 +131,7 @@ function Trade() {
   const readOnly = activeAccount?.access_role === "investor";
   const floating = positions.reduce((s, p) => {
     const quote = quoteFor(quotes, p.symbol, now);
-    if (isFallbackQuote(quote)) return s;
+    if (isFallbackQuote(quote) || isStaleFeedQuote(quote)) return s;
     const price = closePriceFromQuote(p.side as Side, quote);
     return (
       s + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), price) * fxRate

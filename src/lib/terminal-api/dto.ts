@@ -1,5 +1,5 @@
 import type { Database } from "@/integrations/supabase/types";
-import { isFallbackQuote, quoteFor, type QuoteMap } from "@/lib/market-data";
+import { isFallbackQuote, isStaleFeedQuote, quoteFor, type QuoteMap } from "@/lib/market-data";
 import { calcMargin, calcPnl, closePriceFromQuote, type Side } from "@/lib/trading";
 import type { AccountView, AccountSummary, TradingAccount } from "@/lib/trading-service.server";
 
@@ -122,7 +122,7 @@ export function accountViewDto(view: AccountView, role?: Role) {
       calcMargin(position.symbol, Number(position.lots), Number(position.open_price), leverage) *
       fxRate;
     const quote = quoteFor(view.quotes, position.symbol, Date.now());
-    if (isFallbackQuote(quote)) continue;
+    if (isFallbackQuote(quote) || isStaleFeedQuote(quote)) continue;
     const price = closePriceFromQuote(position.side as Side, quote);
     floating +=
       calcPnl(

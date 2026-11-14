@@ -28,7 +28,9 @@ describe("Meridian server client", () => {
   it("loads the entitled catalogue and preserves provider suffixes", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/symbols")) return json([{ symbol: "XAUUSDm" }, { symbol: "USDZAR" }]);
+      if (url.endsWith("/symbols")) {
+        return json([{ symbol: "XAUUSDm" }, { symbol: "BTCUSDM" }, { symbol: "USDZAR" }]);
+      }
       if (url.endsWith("/instruments")) {
         return json([
           {
@@ -52,6 +54,16 @@ describe("Meridian server client", () => {
             contract_size: 100_000,
             enabled: true,
           },
+          {
+            symbol: "BTCUSDM",
+            asset_class: "crypto",
+            base_currency: "BTC",
+            quote_currency: "USD",
+            digits: 2,
+            point: 0.01,
+            contract_size: 1,
+            enabled: true,
+          },
         ]);
       }
       throw new Error(`Unexpected URL ${url}`);
@@ -60,6 +72,7 @@ describe("Meridian server client", () => {
 
     const catalog = await loadMeridianCatalog();
     expect(catalog.providerByInternal.get("XAUUSD")).toBe("XAUUSDm");
+    expect(catalog.providerByInternal.get("BTCUSD")).toBe("BTCUSDM");
     expect(catalog.providerByInternal.get("USDZAR")).toBe("USDZAR");
     expect(isInstrument("USDZAR")).toBe(true);
     expect(fetch).toHaveBeenCalledWith(

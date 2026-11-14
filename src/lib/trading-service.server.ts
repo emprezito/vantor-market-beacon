@@ -104,11 +104,13 @@ function hasFallbackQuotes(quotes: QuoteMap): boolean {
   return Object.values(quotes).some(isFallbackQuote);
 }
 
-function assertTradableQuotes(quotes: QuoteMap): void {
-  if (!fallbackTradingAllowed() && hasFallbackQuotes(quotes)) {
+function assertTradableQuote(quotes: QuoteMap, symbol: string): void {
+  const quote = quotes[symbol];
+  if (!quote) throw new Error("Live prices are unavailable");
+  if (!fallbackTradingAllowed() && isFallbackQuote(quote)) {
     throw new Error(FALLBACK_MARKET_MESSAGE);
   }
-  if (Object.values(quotes).some(isStaleFeedQuote)) {
+  if (isStaleFeedQuote(quote)) {
     throw new Error("Market data is stale. Please try again shortly.");
   }
 }
@@ -193,10 +195,18 @@ function exposure(
 ) {
   return state.positions.reduce(
     (result, position) => {
-      const price = closePriceFromQuote(
-        position.side as Side,
-        quoteFor(quotes, position.symbol, now),
-      );
+      const quote = quoteFor(quotes, position.symbol, now);
+      const price = closePriceFromQuote(position.side as Side, quote);
+      const floating =
+        isFallbackQuote(quote) || isStaleFeedQuote(quote)
+          ? 0
+          : calcPnl(
+              position.symbol,
+              position.side as Side,
+              Number(position.lots),
+              Number(position.open_price),
+              price,
+            ) * fxRate;
       return {
         used:
           result.used +
@@ -207,16 +217,7 @@ function exposure(
             leverage,
           ) *
             fxRate,
-        floating:
-          result.floating +
-          calcPnl(
-            position.symbol,
-            position.side as Side,
-            Number(position.lots),
-            Number(position.open_price),
-            price,
-          ) *
-            fxRate,
+        floating: result.floating + floating,
       };
     },
     { used: 0, floating: 0 },
@@ -301,14 +302,15 @@ async function fillDueLimitOrders(
     ],
     account.server_id,
   );
-  if (!fallbackTradingAllowed() && hasFallbackQuotes(quotes)) return;
-  if (Object.values(quotes).some(isStaleFeedQuote)) return;
   const fxRate = await loadFxRate(account.currency);
 
   for (const order of orders) {
     const now = Date.now();
     const price = Number(order.limit_price);
-    if (!limitHit(order.side as Side, quoteFor(quotes, order.symbol, now), price)) continue;
+    const quote = quoteFor(quotes, order.symbol, now);
+    if (isStaleFeedQuote(quote)) continue;
+    if (!fallbackTradingAllowed() && isFallbackQuote(quote)) continue;
+    if (!limitHit(order.side as Side, quote, price)) continue;
 
     const state = await snapshot(db, account);
     const leverage = Number(state.account.leverage) || 100;
@@ -439,7 +441,7 @@ export async function openMarketOrder(
     account.server_id,
   );
   if (!quotes[order.symbol]) throw new Error("Unknown instrument");
-  assertTradableQuotes(quotes);
+  assertTradableQuote(quotes, order.symbol);
   const quote = quoteFor(quotes, order.symbol, now);
   const price = openPriceFromQuote(order.side, quote);
   const exitPrice = closePriceFromQuote(order.side, quote);
@@ -479,7 +481,7 @@ export async function placeLimitOrder(
   const now = Date.now();
   const quotes = await loadQuoteMap([order.symbol], account.server_id);
   if (!quotes[order.symbol]) throw new Error("Unknown instrument");
-  assertTradableQuotes(quotes);
+  assertTradableQuote(quotes, order.symbol);
   const quote = quoteFor(quotes, order.symbol, now);
   if (order.side === "buy" && order.limitPrice >= quote.ask) {
     throw new Error("Buy limit price must be below the current ask");
@@ -552,7 +554,7 @@ export async function modifyPosition(
   }
 
   const quotes = await loadQuoteMap([position.symbol], account.server_id);
-  assertTradableQuotes(quotes);
+  assertTradableQuote(quotes, position.symbol);
   const quote = quoteFor(quotes, position.symbol, Date.now());
   const exitPrice = closePriceFromQuote(position.side as Side, quote);
   if (stopLoss != null && stopHit(position.side as Side, exitPrice, stopLoss, null)) {

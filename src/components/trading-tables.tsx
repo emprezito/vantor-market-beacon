@@ -1,6 +1,6 @@
 import type { Tables } from "@/integrations/supabase/types";
 import { fmt } from "@/lib/market";
-import { quoteFor, type QuoteMap } from "@/lib/market-data";
+import { isFallbackQuote, isStaleFeedQuote, quoteFor, type QuoteMap } from "@/lib/market-data";
 import { calcPnl, closePriceFromQuote, type Side } from "@/lib/trading";
 import { formatMoney } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
@@ -97,7 +97,9 @@ export function OpenPositionsSection({
   onClose: (id: string) => void;
 }) {
   const floating = positions.reduce((sum, p) => {
-    const price = closePriceFromQuote(p.side as Side, quoteFor(quotes, p.symbol, now));
+    const quote = quoteFor(quotes, p.symbol, now);
+    if (isFallbackQuote(quote) || isStaleFeedQuote(quote)) return sum;
+    const price = closePriceFromQuote(p.side as Side, quote);
     return (
       sum + calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), price) * fxRate
     );
@@ -130,10 +132,13 @@ export function OpenPositionsSection({
               </tr>
             )}
             {positions.map((p) => {
-              const cur = closePriceFromQuote(p.side as Side, quoteFor(quotes, p.symbol, now));
+              const quote = quoteFor(quotes, p.symbol, now);
+              const cur = closePriceFromQuote(p.side as Side, quote);
               const pnl =
-                calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), cur) *
-                fxRate;
+                isFallbackQuote(quote) || isStaleFeedQuote(quote)
+                  ? 0
+                  : calcPnl(p.symbol, p.side as Side, Number(p.lots), Number(p.open_price), cur) *
+                    fxRate;
               return (
                 <tr key={p.id} className="border-t">
                   <td className="px-4 py-2 font-semibold">{p.symbol}</td>

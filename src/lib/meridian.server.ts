@@ -173,7 +173,11 @@ function staticSymbolFor(providerSymbol: string): string | null {
   const exact = providerSymbol.toUpperCase();
   if (INSTRUMENTS.some((instrument) => instrument.symbol === exact)) return exact;
   const normalized = withoutBrokerSuffix(providerSymbol);
-  return INSTRUMENTS.some((instrument) => instrument.symbol === normalized) ? normalized : null;
+  if (INSTRUMENTS.some((instrument) => instrument.symbol === normalized)) return normalized;
+  const uppercaseSuffix = exact.endsWith("M") ? exact.slice(0, -1) : exact;
+  return INSTRUMENTS.some((instrument) => instrument.symbol === uppercaseSuffix)
+    ? uppercaseSuffix
+    : null;
 }
 
 function metadataName(instrument: MeridianInstrument): string | null {
