@@ -9,5 +9,21 @@
     "SUPABASE_URL": "https://bfzizzfyxrjtautzvofu.supabase.co",
     "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_nPA9ZdfeACIrVGRAgGvo7Q_SRf4G4ld",
     "SUPABASE_PROJECT_ID": "bfzizzfyxrjtautzvofu",
+    "MERIDIAN_API_BASE_URL": "https://api.meridianfxdata.site/api/v1",
+    "MERIDIAN_WS_URL": "wss://api.meridianfxdata.site/ws/v1/market",
   },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["XauStream"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["MarketStream"],
+    },
+    {
+      "tag": "v3",
+      "deleted_classes": ["XauStream", "MarketStream"],
+    },
+  ],
 }

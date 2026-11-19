@@ -5,9 +5,10 @@ import {
   signaturesMatch,
 } from "@/lib/realtime-ticket";
 import { ApiError } from "./errors";
-import type { TerminalEnv, TerminalRole, TerminalTokenClaims } from "./types";
+import type { TerminalEnv, TerminalRole, TerminalStreamClaims, TerminalTokenClaims } from "./types";
 
 const TERMINAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const STREAM_TICKET_TTL_MS = 60_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type ClaimSource = {
@@ -27,7 +28,9 @@ export function roleFor(account: { access_role: string | null }): TerminalRole {
   return account.access_role === "investor" ? "investor" : "trader";
 }
 
-async function createToken(claims: TerminalTokenClaims, secret: string) {
+type SignedClaims = TerminalTokenClaims | TerminalStreamClaims;
+
+async function createToken(claims: SignedClaims, secret: string) {
   const payload = encodeBase64Url(new TextEncoder().encode(JSON.stringify(claims)));
   return `${payload}.${await signHmacPayload(payload, secret)}`;
 }
@@ -54,10 +57,35 @@ export async function createTerminalToken(
   return { token, expiresAt };
 }
 
-function parseClaims(value: unknown) {
+export async function createTerminalStreamTicket(
+  account: ClaimSource,
+  role: TerminalRole,
+  secret: string,
+) {
+  const now = Date.now();
+  const expiresAt = now + STREAM_TICKET_TTL_MS;
+  const ticket = await createToken(
+    {
+      typ: "terminal-stream",
+      accountId: account.id,
+      serverId: account.server_id,
+      role,
+      epoch: Number(account.session_epoch),
+      iat: now,
+      exp: expiresAt,
+    },
+    secret,
+  );
+  return { ticket, expiresAt };
+}
+
+function parseClaims<T extends SignedClaims["typ"]>(
+  value: unknown,
+  type: T,
+): Extract<SignedClaims, { typ: T }> | null {
   if (typeof value !== "object" || value === null) return null;
   const claims = value as Record<string, unknown>;
-  if (claims["typ"] !== "terminal") return null;
+  if (claims["typ"] !== type) return null;
   if (typeof claims["accountId"] !== "string" || !UUID_RE.test(claims["accountId"])) return null;
   if (typeof claims["serverId"] !== "string" || !UUID_RE.test(claims["serverId"])) return null;
   if (claims["role"] !== "trader" && claims["role"] !== "investor") return null;
@@ -70,10 +98,14 @@ function parseClaims(value: unknown) {
   if (typeof claims["iat"] !== "number" || typeof claims["exp"] !== "number") return null;
   if (!Number.isFinite(claims["iat"]) || !Number.isFinite(claims["exp"])) return null;
   if (claims["exp"] <= Date.now() || claims["iat"] > Date.now() + 60_000) return null;
-  return claims as unknown as TerminalTokenClaims;
+  return claims as unknown as Extract<SignedClaims, { typ: T }>;
 }
 
-async function verifyToken(token: string, secret: string): Promise<TerminalTokenClaims | null> {
+async function verifyToken<T extends SignedClaims["typ"]>(
+  token: string,
+  secret: string,
+  type: T,
+): Promise<Extract<SignedClaims, { typ: T }> | null> {
   if (!token || !secret) return null;
   const parts = token.split(".");
   if (parts.length !== 2) return null;
@@ -85,7 +117,7 @@ async function verifyToken(token: string, secret: string): Promise<TerminalToken
   } catch {
     return null;
   }
-  const claims = parseClaims(parsed);
+  const claims = parseClaims(parsed, type);
   if (!claims) return null;
   const expected = await signHmacPayload(payload, secret);
   if (!signaturesMatch(signature, expected)) return null;
@@ -93,5 +125,9 @@ async function verifyToken(token: string, secret: string): Promise<TerminalToken
 }
 
 export function verifyTerminalToken(token: string, secret: string) {
-  return verifyToken(token, secret);
+  return verifyToken(token, secret, "terminal");
+}
+
+export function verifyTerminalStreamTicket(token: string, secret: string) {
+  return verifyToken(token, secret, "terminal-stream");
 }

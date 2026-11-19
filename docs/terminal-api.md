@@ -42,7 +42,7 @@ Success:
 - Missing account, wrong password, and disabled account return the same `401` body and status.
 - Failed logins are rate limited by the existing `record_login_failure` RPC. A blocked login returns `429` with `Retry-After`.
 - Send `Authorization: Bearer <token>` on every request except `/login`, `/servers`, and `/quotes`.
-- `/quotes` accepts an optional bearer token and returns Meridian REST, cached, or display-only simulated quotes. An invalid bearer returns `401`; it never silently downgrades.
+- `/quotes` accepts an optional bearer token and returns broker-tick, cached, or display-only simulated quotes. An invalid bearer returns `401`; it never silently downgrades.
 
 ## Endpoints
 
@@ -128,8 +128,7 @@ During fallback, `equity`, `freeMargin`, and floating P/L exclude positions whos
       "bid": 4000.1,
       "ask": 4000.35,
       "ts": 1790000000000,
-      "stale": false,
-      "feed": "meridian"
+      "stale": false
     },
     {
       "symbol": "EURUSD",
@@ -143,11 +142,11 @@ During fallback, `equity`, `freeMargin`, and floating P/L exclude positions whos
 }
 ```
 
-`stale` is `true` for cached, simulated, fallback, or Meridian quotes older than five seconds. `feed: "meridian"` identifies provider data. `feedFallback: true` marks display-only fallback data when Meridian is unavailable.
+`stale` is `true` for cached, simulated, fallback, or broker quotes older than five seconds. `feedFallback: true` marks display-only fallback data when the broker feed is unavailable.
 
 ### Market data guards
 
-While fallback quotes are present, new market and limit orders, stop updates, pending-order fills, SL/TP triggers, and fund movements are refused. Closing an existing position remains available. The API returns `409 fallback_market_data` with message `Live prices are unavailable`; stale Meridian quotes return `409 stale_market_data`.
+While fallback quotes are present, new market and limit orders, stop updates, pending-order fills, SL/TP triggers, and fund movements are refused. Closing an existing position remains available. The API returns `409 fallback_market_data` with message `Live prices are unavailable`; stale broker quotes return `409 stale_market_data`.
 
 `ALLOW_FALLBACK_TRADING=true` bypasses the fallback guard for private development only. It does not bypass the stale-feed guard.
 
@@ -163,13 +162,81 @@ to 60 per minute per account.
   "interval": "1h",
   "candles": [{ "time": 1790000000, "open": 1.1, "high": 1.101, "low": 1.099, "close": 1.1005 }],
   "source": "live",
-  "feed": "meridian",
   "stale": false,
   "fetchedAt": 1790000000000
 }
 ```
 
-`source` is `live`, `cached` or `simulated`; `stale` is `true` for cached or simulated candles. `feed: "meridian"` identifies provider candles. Realtime streaming is browser-to-Meridian and is not exposed through the terminal API.
+`source` is `live`, `cached` or `simulated`; `stale` is `true` for cached or simulated candles.
+
+### `POST /stream-ticket`
+
+Pocket must use the broker stream, not a market-data provider. Request a short-lived stream ticket with the terminal bearer token:
+
+```json
+{}
+```
+
+```json
+{
+  "ticket": "<short-lived opaque ticket>",
+  "expiresAt": 1790000000000,
+  "broker": { "id": "vantor", "name": "Vantor" },
+  "protocol": "vantor.broker.v1",
+  "stream": {
+    "transport": "websocket",
+    "url": "wss://vantor.example/api/v1/terminal/stream?ticket=...",
+    "staleAfterMs": 5000
+  }
+}
+```
+
+Tickets expire after 60 seconds. They never contain a provider API key, provider URL, or provider symbol. A native client may instead connect with `Authorization: Bearer <terminal-token>`; browser clients should use the ticket because browsers cannot set an Authorization header on WebSocket upgrades.
+
+### `GET /stream`
+
+WebSocket broker stream. Authenticate with `?ticket=...` or a bearer token. Optional `?symbols=EURUSD,BTCUSD`; otherwise subscribe after the welcome frame.
+
+Server-to-client frames:
+
+```json
+{ "type": "welcome", "broker": "vantor", "protocol": "vantor.broker.v1", "accountId": "00000000-0000-0000-0000-000000000000", "serverTime": 1790000000000, "staleAfterMs": 5000, "symbols": [] }
+{ "type": "status", "state": "connecting", "at": 1790000000000 }
+{ "type": "snapshot", "at": 1790000000000, "quotes": [{ "symbol": "EURUSD", "bid": 1.1, "ask": 1.1002, "ts": 1790000000000, "stale": false, "seq": 1 }] }
+{ "type": "status", "state": "live", "at": 1790000000000 }
+{ "type": "tick", "symbol": "EURUSD", "bid": 1.1001, "ask": 1.1003, "ts": 1790000000000, "stale": false, "seq": 2 }
+```
+
+Client-to-server frames:
+
+```json
+{ "action": "subscribe", "symbols": ["EURUSD", "BTCUSD"] }
+{ "action": "unsubscribe", "symbols": ["EURUSD"] }
+{ "action": "ping" }
+```
+
+The server replies with `subscribed` / `unsubscribed` acknowledgements, `pong`, `error`, or `status`. `status.state` is `connecting`, `live`, `stale`, `reconnecting`, or `error`; `stale` is sent when no tick arrives within `staleAfterMs`. Symbols are Vantor broker symbols, never provider symbols. Ticks are forwarded one-for-one as the broker receives them; the server does not batch or synthesize ticks. On upstream disconnect the server sends `status: "reconnecting"`, reconnects with backoff, and restores subscriptions. `stale` means the quote is older than `staleAfterMs` or is a fallback snapshot. Fallback snapshots are marked `unavailable: true`; no synthetic ticks are emitted.
+
+## Broker adapters
+
+Pocket should implement one adapter per broker and select it from the broker's descriptor. Vantor's adapter is `vantor.broker.v1` over WebSocket. Another broker can use REST long-polling, SSE, a different WebSocket schema, or a native SDK without changing the trading UI. The adapter contract is:
+
+```ts
+type BrokerAdapter = {
+  id: string;
+  connect(credentials: BrokerCredentials, symbols: string[]): Promise<BrokerStream>;
+};
+
+type BrokerStream = {
+  subscribe(symbols: string[]): void;
+  unsubscribe(symbols: string[]): void;
+  onTick(listener: (tick: BrokerTick) => void): () => void;
+  onStatus(listener: (status: BrokerStreamStatus) => void): () => void;
+  close(): void;
+};
+```
+
+`BrokerTick` must include broker-native symbol, bid, ask, broker timestamp, and a staleness flag. Pocket must not import or depend on Meridian.
 
 ### `POST /orders`
 

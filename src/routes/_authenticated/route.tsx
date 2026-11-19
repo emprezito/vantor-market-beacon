@@ -33,7 +33,7 @@ function Layout() {
   const navigate = useNavigate();
   const { partner } = Route.useRouteContext();
   const { accounts, activeAccount, setActiveAccount, data } = useAccount();
-  const marketCatalog = useMarketCatalog(!partner);
+  useMarketCatalog(!partner);
   const ordersActive = (data?.open?.length ?? 0) > 0 || (data?.pending?.length ?? 0) > 0;
   const signOut = async () => {
     await qc.cancelQueries();
@@ -62,13 +62,7 @@ function Layout() {
         partner={partner}
       />
       <div className={partner ? "pb-0" : "pb-20 lg:pb-0"}>
-        {!partner && marketCatalog.isLoading ? (
-          <main className="p-6" role="status">
-            Loading markets…
-          </main>
-        ) : (
-          <Outlet />
-        )}
+        <Outlet />
       </div>
       {!partner && <MobileBottomNav ordersActive={ordersActive} />}
     </div>

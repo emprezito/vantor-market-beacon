@@ -10,6 +10,16 @@ export type TerminalTokenClaims = {
   exp: number;
 };
 
+export type TerminalStreamClaims = {
+  typ: "terminal-stream";
+  accountId: string;
+  serverId: string;
+  role: TerminalRole;
+  epoch: number;
+  iat: number;
+  exp: number;
+};
+
 export type TerminalEnv = {
   TERMINAL_TOKEN_SECRET?: string;
   ALLOWED_ORIGINS?: string;

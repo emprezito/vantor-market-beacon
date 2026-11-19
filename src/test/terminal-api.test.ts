@@ -11,7 +11,12 @@ vi.mock("@/lib/account-auth.server", () => ({
   INVALID_LOGIN_MESSAGE: "Invalid server, login or password",
 }));
 vi.mock("@/lib/market-data.server", () => ({ loadQuotes: vi.fn(), loadCandles: vi.fn() }));
-vi.mock("@/lib/meridian.server", () => ({ loadMeridianCatalog: vi.fn() }));
+vi.mock("@/lib/meridian.server", () => ({
+  loadMeridianCatalog: vi.fn(),
+  meridianProviderSymbols: vi.fn(),
+  meridianWsUrl: vi.fn(),
+  requestMeridianWsToken: vi.fn(),
+}));
 vi.mock("@/lib/trading-service.server", () => ({
   TRADING_ACCOUNT_SELECT:
     "id, user_id, server_id, login, nickname, label, server, currency, leverage, access_role, status, balance, session_epoch",
@@ -27,6 +32,7 @@ vi.mock("@/lib/terminal-api/auth", async () => {
   return {
     authenticateTerminalRequest: vi.fn(),
     authenticateOptionalTerminalRequest: vi.fn(),
+    authenticateTerminalStreamRequest: vi.fn(),
     assertTrader: (claims: { role: string }, account?: { access_role: string | null }) => {
       if (claims.role === "investor" || account?.access_role === "investor") {
         throw new ApiError(403, "read_only_account", "This is an investor (read-only) account");
@@ -409,6 +415,28 @@ describe("terminal API", () => {
     expect(allowed?.status).toBe(200);
   });
 
+  it("issues a broker stream ticket without provider details", async () => {
+    const response = await handleTerminalApi(request("/stream-ticket", { method: "POST" }), env);
+    expect(response?.status).toBe(200);
+    const payload = await body(response);
+    expect(payload).toMatchObject({
+      broker: { id: "vantor", name: "Vantor" },
+      protocol: "vantor.broker.v1",
+      stream: { transport: "websocket", staleAfterMs: 5_000 },
+    });
+    expect(payload["ticket"]).toEqual(expect.any(String));
+    expect(payload["stream"]).toMatchObject({
+      url: expect.stringMatching(/^wss:\/\/vantor\.test\/api\/v1\/terminal\/stream\?ticket=/),
+    });
+    expect(JSON.stringify(payload)).not.toMatch(/meridian/i);
+  });
+
+  it("requires a WebSocket upgrade for the broker stream", async () => {
+    const response = await handleTerminalApi(request("/stream"), env);
+    expect(response?.status).toBe(426);
+    expect(await body(response)).toMatchObject({ error: "upgrade_required" });
+  });
+
   it("returns account details without secret fields", async () => {
     const response = await handleTerminalApi(request("/account"), env);
     expect(response?.status).toBe(200);
@@ -432,7 +460,7 @@ describe("terminal API", () => {
     });
   });
 
-  it("returns Meridian quote metadata and marks an old quote stale", async () => {
+  it("returns broker quote metadata and marks an old quote stale", async () => {
     vi.mocked(loadQuotes).mockResolvedValueOnce({
       XAUUSD: {
         symbol: "XAUUSD",
@@ -457,7 +485,6 @@ describe("terminal API", () => {
           ask: 2_400.4,
           ts: expect.any(Number),
           stale: true,
-          feed: "meridian",
           change: 12.5,
           high: 2_410,
           low: 2_390,
@@ -480,7 +507,7 @@ describe("terminal API", () => {
     });
   });
 
-  it("returns the feed tag for Meridian candles", async () => {
+  it("returns candles without provider metadata", async () => {
     vi.mocked(loadCandles).mockResolvedValueOnce({
       symbol: "GER40",
       interval: "1h",
@@ -497,7 +524,6 @@ describe("terminal API", () => {
       candles: [{ time: 1_700_000_000, open: 18_000, high: 18_100, low: 17_950, close: 18_050 }],
       source: "live",
       stale: false,
-      feed: "meridian",
       fetchedAt: 123,
     });
   });

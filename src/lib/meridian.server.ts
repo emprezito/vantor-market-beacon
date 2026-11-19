@@ -27,6 +27,7 @@ type CatalogSnapshot = {
 };
 
 const CATALOG_TTL_MS = 5 * 60_000;
+const CATALOG_FAILURE_COOLDOWN_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 8_000;
 
 const USD_PER_CURRENCY: Record<string, number> = {
@@ -42,6 +43,8 @@ const USD_PER_CURRENCY: Record<string, number> = {
 
 let catalogCache: CatalogSnapshot | null = null;
 let catalogPending: Promise<CatalogSnapshot> | null = null;
+let catalogRetryAfter = 0;
+let catalogFailure: MeridianError | null = null;
 
 export class MeridianError extends Error {
   status: number;
@@ -287,11 +290,24 @@ export async function loadMeridianCatalog(): Promise<CatalogSnapshot> {
     registerMarketInstruments(catalogCache.instruments);
     return catalogCache;
   }
+  if (catalogFailure && now < catalogRetryAfter) throw catalogFailure;
   if (catalogPending) return catalogPending;
   catalogPending = fetchCatalog()
     .then((snapshot) => {
       catalogCache = snapshot;
+      catalogFailure = null;
+      catalogRetryAfter = 0;
       return snapshot;
+    })
+    .catch((error) => {
+      catalogFailure =
+        error instanceof MeridianError ? error : new MeridianError("Meridian is unavailable", 503);
+      catalogRetryAfter = Date.now() + (catalogFailure.retryAfterMs ?? CATALOG_FAILURE_COOLDOWN_MS);
+      if (catalogCache) {
+        registerMarketInstruments(catalogCache.instruments);
+        return catalogCache;
+      }
+      throw catalogFailure;
     })
     .finally(() => {
       catalogPending = null;
@@ -351,5 +367,7 @@ export async function requestMeridianWsToken(): Promise<MeridianWsToken> {
 export function resetMeridianCache(): void {
   catalogCache = null;
   catalogPending = null;
+  catalogFailure = null;
+  catalogRetryAfter = 0;
   registerMarketInstruments([]);
 }

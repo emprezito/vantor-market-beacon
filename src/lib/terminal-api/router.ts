@@ -28,6 +28,7 @@ import { ApiError, mapError } from "./errors";
 import { corsFor, json, preflight, readJson } from "./http";
 import { withIdempotency } from "./idempotency";
 import { terminalAdmin } from "./supabase";
+import { brokerStream, createStreamTicket } from "./stream";
 import { createTerminalToken, tokenSecret } from "./token";
 import type { CorsContext, TerminalEnv } from "./types";
 
@@ -281,7 +282,6 @@ async function quotes(request: Request, env: TerminalEnv, cors: CorsContext) {
         ask: quote.ask,
         ts: quote.ts,
         stale: quote.source !== "live" || isStaleFeedQuote(quote) || quote.feedFallback === true,
-        ...(quote.feed == null ? {} : { feed: quote.feed }),
         ...(quote.feedFallback ? { feedFallback: true } : {}),
         ...(quote.marketOpen == null ? {} : { marketOpen: quote.marketOpen }),
         ...(quote.change == null ? {} : { change: quote.change }),
@@ -313,7 +313,6 @@ async function candles(request: Request, env: TerminalEnv, cors: CorsContext) {
     candles: result.candles,
     source: result.source,
     stale: result.source !== "live",
-    ...(result.feed == null ? {} : { feed: result.feed }),
     fetchedAt: result.fetchedAt,
   });
 }
@@ -472,6 +471,9 @@ export async function handleTerminalApi(
     if (path === "/account" && method === "GET") return await account(request, env, cors);
     if (path === "/quotes" && method === "GET") return await quotes(request, env, cors);
     if (path === "/candles" && method === "GET") return await candles(request, env, cors);
+    if (path === "/stream-ticket" && method === "POST")
+      return await createStreamTicket(request, env, cors);
+    if (path === "/stream" && method === "GET") return await brokerStream(request, env);
     if (path === "/orders" && method === "POST") return await createOrder(request, env, cors);
     if (path === "/orders/pending" && method === "POST")
       return await createLimitOrder(request, env, cors);

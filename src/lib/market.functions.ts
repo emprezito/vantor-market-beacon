@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
-import { isChartInterval, isInstrument, type ChartInterval } from "./market-data";
+import { isChartInterval, type ChartInterval } from "./market-data";
 
 type AuthContext = { supabase: SupabaseClient<Database>; userId: string };
 
@@ -53,14 +53,11 @@ export const getMarketQuotes = createServerFn({ method: "POST" })
   .inputValidator(validateSymbols)
   .handler(async ({ data, context }) => {
     const { loadQuotes } = await import("./market-data.server");
-    const { loadMeridianCatalog } = await import("./meridian.server");
     await accountServerId(context, data.accountId);
-    await loadMeridianCatalog().catch(() => null);
-    if (data.symbols.some((symbol) => !isInstrument(symbol))) {
-      throw new Error("Unknown market symbol");
-    }
+    const quotes = await loadQuotes(data.symbols);
+    if (data.symbols.some((symbol) => !quotes[symbol])) throw new Error("Unknown market symbol");
     return {
-      quotes: await loadQuotes(data.symbols),
+      quotes,
       fetchedAt: Date.now(),
     };
   });
@@ -104,9 +101,6 @@ export const getMarketCandles = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { loadCandles } = await import("./market-data.server");
-    const { loadMeridianCatalog } = await import("./meridian.server");
     await accountServerId(context, data.accountId);
-    await loadMeridianCatalog().catch(() => null);
-    if (!isInstrument(data.symbol)) throw new Error("Unknown instrument");
     return loadCandles(data.symbol, data.interval, data.points);
   });

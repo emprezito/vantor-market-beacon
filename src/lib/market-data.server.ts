@@ -109,9 +109,16 @@ export async function loadQuotes(
   symbols: string[],
   _options: { serverId?: string | null } = {},
 ): Promise<QuoteMap> {
-  await loadMeridianCatalog().catch(() => null);
+  const catalogAvailable = await loadMeridianCatalog()
+    .then(() => true)
+    .catch(() => false);
   const unique = Array.from(new Set(symbols)).filter(isInstrument);
   if (unique.length === 0) return {};
+  if (!catalogAvailable) {
+    return Object.fromEntries(
+      unique.map((symbol) => [symbol, cachedQuote(symbol) ?? fallbackQuote(symbol, Date.now())]),
+    );
+  }
 
   const now = Date.now();
   const result: QuoteMap = {};
@@ -215,10 +222,13 @@ export async function loadCandles(
   points = 180,
   _options: { serverId?: string | null } = {},
 ): Promise<MarketCandles> {
-  await loadMeridianCatalog().catch(() => null);
+  const catalogAvailable = await loadMeridianCatalog()
+    .then(() => true)
+    .catch(() => false);
   const safeInterval = isChartInterval(interval) ? interval : "1min";
   const safePoints = Math.min(500, Math.max(20, Math.round(points)));
   if (!isInstrument(symbol)) return fallbackCandles(symbol, safeInterval, safePoints);
+  if (!catalogAvailable) return fallbackCandles(symbol, safeInterval, safePoints);
 
   const cacheKey = `${symbol}:${safeInterval}:${safePoints}`;
   const cached = candleCache.get(cacheKey);

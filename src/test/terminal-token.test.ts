@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { assertTrader } from "@/lib/terminal-api/auth";
-import { createTerminalToken, verifyTerminalToken } from "@/lib/terminal-api/token";
+import {
+  createTerminalStreamTicket,
+  createTerminalToken,
+  verifyTerminalStreamTicket,
+  verifyTerminalToken,
+} from "@/lib/terminal-api/token";
 
 const secret = "test-terminal-secret-with-at-least-32-bytes";
 const account = {
@@ -26,6 +31,33 @@ describe("terminal tokens", () => {
       epoch: 3,
     });
     expect(claims?.exp).toBe(expiresAt);
+  });
+
+  it("signs and verifies a short-lived broker stream ticket", async () => {
+    const { ticket, expiresAt } = await createTerminalStreamTicket(account, "trader", secret);
+    const claims = await verifyTerminalStreamTicket(ticket, secret);
+    expect(claims).toMatchObject({
+      typ: "terminal-stream",
+      accountId: account.id,
+      serverId: account.server_id,
+      role: "trader",
+      epoch: 3,
+    });
+    expect(claims?.exp).toBe(expiresAt);
+    expect(expiresAt - Date.now()).toBeLessThanOrEqual(60_000);
+  });
+
+  it("does not accept a stream ticket as a terminal token", async () => {
+    const { ticket } = await createTerminalStreamTicket(account, "trader", secret);
+    await expect(verifyTerminalToken(ticket, secret)).resolves.toBeNull();
+  });
+
+  it("expires stream tickets after sixty seconds", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-26T00:00:00Z"));
+    const { ticket } = await createTerminalStreamTicket(account, "trader", secret);
+    vi.setSystemTime(new Date("2026-10-26T00:01:01Z"));
+    await expect(verifyTerminalStreamTicket(ticket, secret)).resolves.toBeNull();
   });
 
   it("rejects a token signed with a different secret", async () => {

@@ -664,8 +664,8 @@ in Cloudflare secrets.
 | `SUPABASE_SERVICE_ROLE_KEY`     | server only           | Bypasses RLS; required by all mutations                                              |
 | `SUPABASE_DB_URL`               | local tooling only    | Optional direct/session-pooler URL for the legacy `db:apply` runner                  |
 | `MERIDIAN_API_KEY`              | server only           | Long-lived Meridian key used for REST and WS-token exchange                          |
-| `MERIDIAN_API_BASE_URL`         | server only           | Meridian REST root, e.g. `http://localhost:8000/api/v1`                              |
-| `MERIDIAN_WS_URL`               | server response       | Meridian stream URL, e.g. `ws://localhost:8000/ws/v1/market`                         |
+| `MERIDIAN_API_BASE_URL`         | server only           | Meridian REST root, e.g. `https://api.meridianfxdata.site/api/v1`                    |
+| `MERIDIAN_WS_URL`               | server response       | Meridian stream URL, e.g. `wss://api.meridianfxdata.site/ws/v1/market`               |
 | `TERMINAL_TOKEN_SECRET`         | server only           | HMAC secret for terminal bearer tokens; do not reuse another secret                  |
 | `ALLOWED_ORIGINS`               | server only, optional | Comma-separated terminal CORS allowlist; defaults are built in                       |
 | `ALLOW_DEV_ORIGINS`             | server only, optional | `true` adds `http://localhost:8080` to terminal CORS                                 |
@@ -681,7 +681,7 @@ Notes:
   `SUPABASE_SERVICE_ROLE_KEY` secret.
 - Add `MERIDIAN_API_KEY` as a Worker secret. REST calls use `X-API-Key`; the
   authenticated WS token function returns only the provider's short-lived token.
-- Local defaults target `http://localhost:8000/api/v1` and
+- Local development may target `http://localhost:8000/api/v1` and
   `ws://localhost:8000/ws/v1/market`. Production must use public HTTPS/WSS URLs.
 - Meridian 429 responses honor `Retry-After`; do not lower cache TTLs without
   checking the paid plan's request budget.

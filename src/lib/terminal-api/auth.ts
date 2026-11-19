@@ -3,8 +3,8 @@ import type { Database } from "@/integrations/supabase/types";
 import { TRADING_ACCOUNT_SELECT, type TradingAccount } from "@/lib/trading-service.server";
 import { ApiError } from "./errors";
 import { bearerToken } from "./http";
-import { tokenSecret, verifyTerminalToken } from "./token";
-import type { TerminalEnv, TerminalTokenClaims } from "./types";
+import { tokenSecret, verifyTerminalStreamTicket, verifyTerminalToken } from "./token";
+import type { TerminalEnv, TerminalStreamClaims, TerminalTokenClaims } from "./types";
 
 const UNAUTHORIZED = "Your session is no longer valid. Please sign in again.";
 
@@ -48,6 +48,19 @@ export async function authenticateTerminalRequest(
   if (!claims) throw invalidSession();
   const account = await loadActiveAccount(admin, claims.accountId, claims.serverId, claims.epoch);
   return { account, claims: claims as TerminalTokenClaims };
+}
+
+export async function authenticateTerminalStreamRequest(
+  request: Request,
+  env: TerminalEnv,
+  admin: SupabaseClient<Database>,
+) {
+  const ticket = new URL(request.url).searchParams.get("ticket");
+  if (!ticket) return authenticateTerminalRequest(request, env, admin);
+  const claims = await verifyTerminalStreamTicket(ticket, tokenSecret(env));
+  if (!claims) throw invalidSession();
+  const account = await loadActiveAccount(admin, claims.accountId, claims.serverId, claims.epoch);
+  return { account, claims: claims as TerminalStreamClaims };
 }
 
 export async function authenticateOptionalTerminalRequest(
