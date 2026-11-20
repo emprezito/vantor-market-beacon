@@ -59,6 +59,15 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-vantor-ink: oklch(0.2206 0.028 175.3);
+  --color-vantor-pine: oklch(0.2987 0.0399 171.67);
+  --color-vantor-parchment: oklch(0.9442 0.0184 86.15);
+  --color-vantor-paper: oklch(0.9795 0.0098 87.47);
+  --color-vantor-brass: oklch(0.7364 0.0907 83.72);
+  --color-vantor-brass-light: oklch(0.8002 0.0787 83.79);
+  --color-vantor-live: oklch(0.53 0.0806 158.28);
+  --color-vantor-clay: oklch(0.5187 0.124 36.07);
+  --color-vantor-sage: oklch(0.6404 0.0282 165.15);
 }
 
 :root {
@@ -141,5 +150,73 @@
     font-family: "Manrope", system-ui, sans-serif;
     background-color: var(--color-background);
     color: var(--color-foreground);
+  }
+}
+
+.vantor-home {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.vantor-display {
+  font-family: "Bodoni Moda", "Times New Roman", serif;
+  font-optical-sizing: auto;
+}
+
+.vantor-mono {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.vantor-hero {
+  background-image:
+    radial-gradient(
+      ellipse 70% 60% at 92% 4%,
+      oklch(0.7364 0.0907 83.72 / 0.16),
+      transparent 68%
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 55px,
+      oklch(0.2206 0.028 175.3 / 0.045) 55px,
+      oklch(0.2206 0.028 175.3 / 0.045) 56px
+    );
+}
+
+.vantor-home ::selection {
+  background: oklch(0.7364 0.0907 83.72 / 0.55);
+  color: oklch(0.2206 0.028 175.3);
+}
+
+.vantor-home a:focus-visible,
+.vantor-home button:focus-visible {
+  outline: 2px solid oklch(0.7364 0.0907 83.72);
+  outline-offset: 4px;
+}
+
+@keyframes vantor-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.vantor-rise {
+  animation: vantor-rise 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.vantor-delay-2 {
+  animation-delay: 180ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vantor-rise {
+    animation: none;
   }
 }
