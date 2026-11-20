@@ -11,6 +11,7 @@
     "SUPABASE_PROJECT_ID": "bfzizzfyxrjtautzvofu",
     "MERIDIAN_API_BASE_URL": "https://api.meridianfxdata.site/api/v1",
     "MERIDIAN_WS_URL": "wss://api.meridianfxdata.site/ws/v1/market",
+    "PUBLIC_BROKER_BASE_URL": "https://vantor-market-beacon.fundedng.workers.dev",
   },
   "migrations": [
     {

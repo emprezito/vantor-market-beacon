@@ -1,8 +1,52 @@
-# Vantor Terminal API
+# Vantor Pocket Broker API
 
-Versioned REST/WebSocket API for the Pocket Markets terminal. The terminal never receives a Supabase URL, anon key, service-role key, password hash, or another account's data.
+Vantor's implementation of the broker-neutral `pocket.broker.v1` REST/WebSocket protocol. Pocket communicates only with Vantor and never receives an upstream provider URL, provider token, API key, Supabase credential, password hash, or another account's data.
 
 Base path: `/api/v1/terminal`
+
+## Discovery
+
+`GET /.well-known/pocket-broker.json` publishes Vantor's public protocol descriptor. Pocket uses this document during broker onboarding and connection setup; no Vantor-specific client adapter is required.
+
+```json
+{
+  "manifestVersion": 1,
+  "protocol": "pocket.broker.v1",
+  "protocolVersions": ["pocket.broker.v1"],
+  "broker": { "id": "vantor", "name": "Vantor" },
+  "api": {
+    "baseUrl": "https://vantor.example/api/v1/terminal",
+    "servers": "https://vantor.example/api/v1/terminal/servers",
+    "login": "https://vantor.example/api/v1/terminal/login",
+    "account": "https://vantor.example/api/v1/terminal/account",
+    "instruments": "https://vantor.example/api/v1/terminal/instruments",
+    "quotes": "https://vantor.example/api/v1/terminal/quotes",
+    "candles": "https://vantor.example/api/v1/terminal/candles",
+    "streamTicket": "https://vantor.example/api/v1/terminal/stream-ticket"
+  },
+  "authentication": {
+    "type": "broker-account",
+    "tokenType": "bearer",
+    "roles": ["trader", "investor"]
+  },
+  "streaming": {
+    "transport": "websocket",
+    "staleAfterMs": 5000
+  },
+  "capabilities": [
+    "market-orders",
+    "limit-orders",
+    "stop-loss",
+    "take-profit",
+    "position-close",
+    "investor-access",
+    "candles",
+    "live-quotes"
+  ]
+}
+```
+
+The manifest is public, cacheable for five minutes, and contains only Vantor broker URLs. `PUBLIC_BROKER_BASE_URL` sets the advertised production origin; local development falls back to the request origin.
 
 ## Authentication
 
@@ -41,7 +85,7 @@ Success:
 - Every authenticated request re-loads the account by id **and** server id. A missing, disabled, or epoch-mismatched account returns `401`.
 - Missing account, wrong password, and disabled account return the same `401` body and status.
 - Failed logins are rate limited by the existing `record_login_failure` RPC. A blocked login returns `429` with `Retry-After`.
-- Send `Authorization: Bearer <token>` on every request except `/login`, `/servers`, and `/quotes`.
+- Send `Authorization: Bearer <token>` on every request except `/login`, `/servers`, `/instruments`, and `/quotes`.
 - `/quotes` accepts an optional bearer token and returns broker-tick, cached, or display-only simulated quotes. An invalid bearer returns `401`; it never silently downgrades.
 
 ## Endpoints
@@ -85,6 +129,35 @@ Authenticated. Resolves a server ID entered by the trader without exposing a pri
 ```
 
 There is no access-code or join flow; the partner supplies the server ID.
+
+### `GET /instruments`
+
+Returns the active Vantor broker catalogue. Symbols are canonical Vantor symbols; provider symbols and provider metadata are never returned.
+
+```json
+{
+  "protocol": "pocket.broker.v1",
+  "fetchedAt": 1790000000000,
+  "instruments": [
+    {
+      "symbol": "XAUUSD",
+      "name": "Gold vs US Dollar",
+      "assetClass": "metals",
+      "digits": 2,
+      "point": 0.01,
+      "tickSize": 0.01,
+      "contractSize": 100,
+      "minimumLots": 0.01,
+      "maximumLots": 100,
+      "lotStep": 0.01,
+      "baseCurrency": "XAU",
+      "quoteCurrency": "USD",
+      "orderTypes": ["market", "limit"],
+      "status": "enabled"
+    }
+  ]
+}
+```
 
 ### `GET /account`
 
@@ -182,7 +255,7 @@ Pocket must use the broker stream, not a market-data provider. Request a short-l
   "ticket": "<short-lived opaque ticket>",
   "expiresAt": 1790000000000,
   "broker": { "id": "vantor", "name": "Vantor" },
-  "protocol": "vantor.broker.v1",
+  "protocol": "pocket.broker.v1",
   "stream": {
     "transport": "websocket",
     "url": "wss://vantor.example/api/v1/terminal/stream?ticket=...",
@@ -200,7 +273,7 @@ WebSocket broker stream. Authenticate with `?ticket=...` or a bearer token. Opti
 Server-to-client frames:
 
 ```json
-{ "type": "welcome", "broker": "vantor", "protocol": "vantor.broker.v1", "accountId": "00000000-0000-0000-0000-000000000000", "serverTime": 1790000000000, "staleAfterMs": 5000, "symbols": [] }
+{ "type": "welcome", "broker": "vantor", "protocol": "pocket.broker.v1", "accountId": "00000000-0000-0000-0000-000000000000", "serverTime": 1790000000000, "staleAfterMs": 5000, "symbols": [] }
 { "type": "status", "state": "connecting", "at": 1790000000000 }
 { "type": "snapshot", "at": 1790000000000, "quotes": [{ "symbol": "EURUSD", "bid": 1.1, "ask": 1.1002, "ts": 1790000000000, "stale": false, "seq": 1 }] }
 { "type": "status", "state": "live", "at": 1790000000000 }
@@ -217,26 +290,11 @@ Client-to-server frames:
 
 The server replies with `subscribed` / `unsubscribed` acknowledgements, `pong`, `error`, or `status`. `status.state` is `connecting`, `live`, `stale`, `reconnecting`, or `error`; `stale` is sent when no tick arrives within `staleAfterMs`. Symbols are Vantor broker symbols, never provider symbols. Ticks are forwarded one-for-one as the broker receives them; the server does not batch or synthesize ticks. On upstream disconnect the server sends `status: "reconnecting"`, reconnects with backoff, and restores subscriptions. `stale` means the quote is older than `staleAfterMs` or is a fallback snapshot. Fallback snapshots are marked `unavailable: true`; no synthetic ticks are emitted.
 
-## Broker adapters
+## Pocket Protocol Boundary
 
-Pocket should implement one adapter per broker and select it from the broker's descriptor. Vantor's adapter is `vantor.broker.v1` over WebSocket. Another broker can use REST long-polling, SSE, a different WebSocket schema, or a native SDK without changing the trading UI. The adapter contract is:
+Pocket implements one `pocket.broker.v1` client. Every licensed broker publishes the same discovery, authentication, instrument, account, trading, and streaming contracts from its own infrastructure. `broker.id` selects branding and broker registration; it does not select broker-specific application code.
 
-```ts
-type BrokerAdapter = {
-  id: string;
-  connect(credentials: BrokerCredentials, symbols: string[]): Promise<BrokerStream>;
-};
-
-type BrokerStream = {
-  subscribe(symbols: string[]): void;
-  unsubscribe(symbols: string[]): void;
-  onTick(listener: (tick: BrokerTick) => void): () => void;
-  onStatus(listener: (status: BrokerStreamStatus) => void): () => void;
-  close(): void;
-};
-```
-
-`BrokerTick` must include broker-native symbol, bid, ask, broker timestamp, and a staleness flag. Pocket must not import or depend on Meridian.
+Vantor alone owns its upstream market-data and execution integrations. Pocket uses only Vantor symbols, Vantor account credentials, Vantor URLs, and the standardized broker frames documented here.
 
 ### `POST /orders`
 
@@ -337,11 +395,12 @@ Allowed origins come from `ALLOWED_ORIGINS` (comma-separated). Defaults:
 - `https://localhost`
 - `capacitor://localhost`
 
-`http://localhost:8080` is added only when `ALLOW_DEV_ORIGINS=true`. Requests with no `Origin` are allowed. `*` is never used. Preflight allows `Authorization`, `Content-Type`, and `Idempotency-Key`.
+`http://localhost:8080` is added only when `ALLOW_DEV_ORIGINS=true`. Requests with no `Origin` are allowed. `*` is never used for account or trading APIs; the public well-known discovery document permits every origin. Preflight allows `Authorization`, `Content-Type`, and `Idempotency-Key`.
 
 ## Configuration
 
 - `TERMINAL_TOKEN_SECRET` — random secret, at least 32 bytes. Do not reuse another application secret.
+- `PUBLIC_BROKER_BASE_URL` — public HTTPS origin advertised by discovery and stream tickets. Local development falls back to the request origin.
 - `ALLOWED_ORIGINS` — comma-separated allowlist.
 - `ALLOW_DEV_ORIGINS` — optional, `true` to allow `http://localhost:8080`.
 - `ALLOW_FALLBACK_TRADING` — optional, `true` to allow trading on fallback quotes during private development. Defaults to false.

@@ -22,6 +22,7 @@ export type TerminalStreamClaims = {
 
 export type TerminalEnv = {
   TERMINAL_TOKEN_SECRET?: string;
+  PUBLIC_BROKER_BASE_URL?: string;
   ALLOWED_ORIGINS?: string;
   ALLOW_DEV_ORIGINS?: string;
   SUPABASE_URL?: string;

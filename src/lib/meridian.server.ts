@@ -249,6 +249,11 @@ function buildCatalog(allowedValues: unknown, instrumentValues: unknown): Catalo
       base: existing?.base ?? 1,
       vol: existing?.vol ?? 0,
       digits,
+      point: point ?? 10 ** -digits,
+      tickSize:
+        provider.tick_size != null && provider.tick_size > 0
+          ? provider.tick_size
+          : (point ?? 10 ** -digits),
       spread: existing?.spread ?? Math.max(point ? point * 2 : 0, 0),
       contract,
       quoteIsUsd,

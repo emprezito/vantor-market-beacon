@@ -7,6 +7,8 @@ export type Instrument = {
   base: number;
   vol: number; // relative swing size
   digits: number;
+  point?: number;
+  tickSize?: number;
   spread: number; // absolute
   contract: number; // units per 1 lot
   quoteIsUsd: boolean; // false => P/L is in the quote currency

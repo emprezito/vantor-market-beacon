@@ -647,6 +647,24 @@ otherwise the terminal uses its display-only simulated fallback.
 
 ---
 
+## Pocket broker protocol
+
+Vantor implements the broker-neutral `pocket.broker.v1` contract for external
+Pocket terminals. Discovery is published at
+`/.well-known/pocket-broker.json`; broker REST endpoints live under
+`/api/v1/terminal`, and authenticated realtime uses the broker WebSocket
+returned by `/api/v1/terminal/stream-ticket`.
+
+Pocket sees only Vantor URLs, Vantor symbols, Vantor account credentials and
+standardized broker responses. Market-data provider URLs, symbols, tokens and
+API keys remain private Vantor implementation details. Other licensed brokers
+implement the same protocol rather than requiring broker-specific Pocket code.
+
+See `docs/terminal-api.md` for the discovery manifest, instruments, trading and
+streaming contracts.
+
+---
+
 ## Environment variables
 
 Public values are committed in `.env` and mirrored to Worker vars in
@@ -666,6 +684,7 @@ in Cloudflare secrets.
 | `MERIDIAN_API_KEY`              | server only           | Long-lived Meridian key used for REST and WS-token exchange                          |
 | `MERIDIAN_API_BASE_URL`         | server only           | Meridian REST root, e.g. `https://api.meridianfxdata.site/api/v1`                    |
 | `MERIDIAN_WS_URL`               | server response       | Meridian stream URL, e.g. `wss://api.meridianfxdata.site/ws/v1/market`               |
+| `PUBLIC_BROKER_BASE_URL`        | server only           | Public Vantor origin advertised through the Pocket broker manifest                   |
 | `TERMINAL_TOKEN_SECRET`         | server only           | HMAC secret for terminal bearer tokens; do not reuse another secret                  |
 | `ALLOWED_ORIGINS`               | server only, optional | Comma-separated terminal CORS allowlist; defaults are built in                       |
 | `ALLOW_DEV_ORIGINS`             | server only, optional | `true` adds `http://localhost:8080` to terminal CORS                                 |

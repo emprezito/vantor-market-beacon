@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { handleBrokerDiscovery } from "./lib/terminal-api/discovery";
 import { handleTerminalApi } from "./lib/terminal-api/router";
 
 type ServerEntry = {
@@ -14,6 +15,7 @@ type WorkerEnv = {
   MERIDIAN_WS_URL?: string;
   MARKET_WS_URL?: string;
   TERMINAL_TOKEN_SECRET?: string;
+  PUBLIC_BROKER_BASE_URL?: string;
   ALLOWED_ORIGINS?: string;
   ALLOW_DEV_ORIGINS?: string;
   SUPABASE_URL?: string;
@@ -67,6 +69,9 @@ export default {
     try {
       const runtimeEnv = (globalThis as RealtimeGlobals).__env__ ?? ((env ?? {}) as WorkerEnv);
       (globalThis as RealtimeGlobals).__env__ = runtimeEnv;
+
+      const discovery = handleBrokerDiscovery(request, runtimeEnv);
+      if (discovery) return discovery;
 
       const terminal = await handleTerminalApi(request, runtimeEnv);
       if (terminal) return terminal;

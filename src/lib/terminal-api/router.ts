@@ -23,6 +23,7 @@ import {
   authenticateTerminalRequest,
   assertTrader,
 } from "./auth";
+import { POCKET_BROKER_PROTOCOL, TERMINAL_PREFIX } from "./broker";
 import { accountDto, accountViewDto } from "./dto";
 import { ApiError, mapError } from "./errors";
 import { corsFor, json, preflight, readJson } from "./http";
@@ -32,7 +33,6 @@ import { brokerStream, createStreamTicket } from "./stream";
 import { createTerminalToken, tokenSecret } from "./token";
 import type { CorsContext, TerminalEnv } from "./types";
 
-const PREFIX = "/api/v1/terminal";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const loginSchema = z.object({
@@ -258,6 +258,41 @@ async function account(request: Request, env: TerminalEnv, cors: CorsContext) {
   return json(cors, accountViewDto(view, role));
 }
 
+async function instruments(cors: CorsContext) {
+  let catalog: Awaited<ReturnType<typeof loadMeridianCatalog>>;
+  try {
+    catalog = await loadMeridianCatalog();
+  } catch {
+    throw new ApiError(503, "service_unavailable", "Could not load broker instruments");
+  }
+
+  return json(
+    cors,
+    {
+      protocol: POCKET_BROKER_PROTOCOL,
+      fetchedAt: catalog.fetchedAt,
+      instruments: catalog.instruments.map((instrument) => ({
+        symbol: instrument.symbol,
+        name: instrument.name,
+        assetClass: instrument.assetClass ?? "unknown",
+        digits: instrument.digits,
+        point: instrument.point ?? 10 ** -instrument.digits,
+        tickSize: instrument.tickSize ?? instrument.point ?? 10 ** -instrument.digits,
+        contractSize: instrument.contract,
+        minimumLots: 0.01,
+        maximumLots: 100,
+        lotStep: 0.01,
+        baseCurrency: instrument.baseCurrency ?? null,
+        quoteCurrency: instrument.quoteCurrency ?? null,
+        orderTypes: ["market", "limit"],
+        status: "enabled",
+      })),
+    },
+    200,
+    { "cache-control": "public, max-age=300" },
+  );
+}
+
 async function quotes(request: Request, env: TerminalEnv, cors: CorsContext) {
   const symbols = parseSymbols(new URL(request.url));
   await loadMeridianCatalog().catch(() => null);
@@ -445,7 +480,8 @@ export async function handleTerminalApi(
   env: TerminalEnv,
 ): Promise<Response | null> {
   const url = new URL(request.url);
-  if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) return null;
+  if (url.pathname !== TERMINAL_PREFIX && !url.pathname.startsWith(`${TERMINAL_PREFIX}/`))
+    return null;
 
   let cors: CorsContext;
   try {
@@ -461,7 +497,7 @@ export async function handleTerminalApi(
   if (request.method === "OPTIONS") return preflight(cors);
 
   try {
-    const path = url.pathname.slice(PREFIX.length) || "/";
+    const path = url.pathname.slice(TERMINAL_PREFIX.length) || "/";
     const method = request.method;
 
     if (path === "/login" && method === "POST") return await login(request, env, cors);
@@ -469,6 +505,7 @@ export async function handleTerminalApi(
     if (path === "/servers/resolve" && method === "POST")
       return await resolveServer(request, env, cors);
     if (path === "/account" && method === "GET") return await account(request, env, cors);
+    if (path === "/instruments" && method === "GET") return await instruments(cors);
     if (path === "/quotes" && method === "GET") return await quotes(request, env, cors);
     if (path === "/candles" && method === "GET") return await candles(request, env, cors);
     if (path === "/stream-ticket" && method === "POST")

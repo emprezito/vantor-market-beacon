@@ -131,6 +131,7 @@ const view: AccountView = {
 
 const env = {
   TERMINAL_TOKEN_SECRET: secret,
+  PUBLIC_BROKER_BASE_URL: "https://vantor.test",
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
 };
@@ -258,6 +259,70 @@ describe("terminal API", () => {
     expect(response?.status).toBe(200);
     expect(await body(response)).toEqual({
       servers: [{ id: serverId, name: "Demo", currencies: ["USD"], leverages: [100] }],
+    });
+  });
+
+  it("lists broker-native instruments without provider metadata", async () => {
+    vi.mocked(loadMeridianCatalog).mockResolvedValueOnce({
+      fetchedAt: 1790000000000,
+      instruments: [
+        {
+          symbol: "XAUUSD",
+          providerSymbol: "XAUUSDm",
+          name: "Gold vs US Dollar",
+          assetClass: "metals",
+          baseCurrency: "XAU",
+          quoteCurrency: "USD",
+          base: 2400,
+          vol: 0,
+          digits: 2,
+          point: 0.01,
+          tickSize: 0.01,
+          spread: 0.25,
+          contract: 100,
+          quoteIsUsd: true,
+        },
+      ],
+      providerByInternal: new Map([["XAUUSD", "XAUUSDm"]]),
+      internalByProvider: new Map([["XAUUSDm", "XAUUSD"]]),
+    } as never);
+
+    const response = await handleTerminalApi(request("/instruments"), env);
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("cache-control")).toBe("public, max-age=300");
+    const payload = await body(response);
+    expect(payload).toEqual({
+      protocol: "pocket.broker.v1",
+      fetchedAt: 1790000000000,
+      instruments: [
+        {
+          symbol: "XAUUSD",
+          name: "Gold vs US Dollar",
+          assetClass: "metals",
+          digits: 2,
+          point: 0.01,
+          tickSize: 0.01,
+          contractSize: 100,
+          minimumLots: 0.01,
+          maximumLots: 100,
+          lotStep: 0.01,
+          baseCurrency: "XAU",
+          quoteCurrency: "USD",
+          orderTypes: ["market", "limit"],
+          status: "enabled",
+        },
+      ],
+    });
+    expect(JSON.stringify(payload)).not.toMatch(/meridian|providerSymbol|XAUUSDm/i);
+  });
+
+  it("reports an unavailable broker instrument catalogue", async () => {
+    vi.mocked(loadMeridianCatalog).mockRejectedValueOnce(new Error("upstream unavailable"));
+    const response = await handleTerminalApi(request("/instruments"), env);
+    expect(response?.status).toBe(503);
+    expect(await body(response)).toEqual({
+      error: "service_unavailable",
+      message: "Could not load broker instruments",
     });
   });
 
@@ -421,7 +486,7 @@ describe("terminal API", () => {
     const payload = await body(response);
     expect(payload).toMatchObject({
       broker: { id: "vantor", name: "Vantor" },
-      protocol: "vantor.broker.v1",
+      protocol: "pocket.broker.v1",
       stream: { transport: "websocket", staleAfterMs: 5_000 },
     });
     expect(payload["ticket"]).toEqual(expect.any(String));

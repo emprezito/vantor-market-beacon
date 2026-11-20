@@ -1,26 +1,25 @@
 import { isStaleFeedQuote, type MarketQuote } from "@/lib/market-data";
 import { loadQuotes } from "@/lib/market-data.server";
-import {
-  MERIDIAN_QUOTE_STALE_MS,
-  parseMeridianQuote,
-  parseMeridianStreamMessage,
-} from "@/lib/meridian";
+import { parseMeridianQuote, parseMeridianStreamMessage } from "@/lib/meridian";
 import {
   meridianProviderSymbols,
   meridianWsUrl,
   requestMeridianWsToken,
 } from "@/lib/meridian.server";
 import { authenticateTerminalRequest, authenticateTerminalStreamRequest } from "./auth";
+import {
+  BROKER_ID,
+  BROKER_NAME,
+  BROKER_QUOTE_STALE_MS,
+  POCKET_BROKER_PROTOCOL,
+  streamUrl,
+} from "./broker";
 import { ApiError } from "./errors";
 import { json } from "./http";
 import { terminalAdmin } from "./supabase";
 import { createTerminalStreamTicket, tokenSecret } from "./token";
 import type { CorsContext, TerminalEnv } from "./types";
 
-const TERMINAL_PREFIX = "/api/v1/terminal";
-const BROKER_PROTOCOL = "vantor.broker.v1";
-const BROKER_ID = "vantor";
-const BROKER_NAME = "Vantor";
 const HEARTBEAT_MS = 15_000;
 const PONG_TIMEOUT_MS = 5_000;
 const RECONNECT_MAX_MS = 30_000;
@@ -169,10 +168,10 @@ class BrokerStreamSession {
     this.sendFrame({
       type: "welcome",
       broker: BROKER_ID,
-      protocol: BROKER_PROTOCOL,
+      protocol: POCKET_BROKER_PROTOCOL,
       accountId: this.accountId,
       serverTime: Date.now(),
-      staleAfterMs: MERIDIAN_QUOTE_STALE_MS,
+      staleAfterMs: BROKER_QUOTE_STALE_MS,
       symbols: [...this.desired],
     });
     void this.sendSnapshot();
@@ -197,11 +196,11 @@ class BrokerStreamSession {
 
   private armStaleTimer() {
     if (this.staleTimer) return;
-    const delay = Math.max(0, this.lastTickAt + MERIDIAN_QUOTE_STALE_MS + 50 - Date.now());
+    const delay = Math.max(0, this.lastTickAt + BROKER_QUOTE_STALE_MS + 50 - Date.now());
     this.staleTimer = setTimeout(() => {
       this.staleTimer = null;
       if (this.closed || this.status !== "live") return;
-      if (Date.now() - this.lastTickAt < MERIDIAN_QUOTE_STALE_MS) {
+      if (Date.now() - this.lastTickAt < BROKER_QUOTE_STALE_MS) {
         this.armStaleTimer();
         return;
       }
@@ -572,23 +571,15 @@ export async function createStreamTicket(
     claims.role,
     tokenSecret(env),
   );
-  const requestUrl = new URL(request.url);
-  const streamUrl = new URL(requestUrl.toString());
-  const local = requestUrl.hostname === "localhost" || requestUrl.hostname === "127.0.0.1";
-  streamUrl.protocol = requestUrl.protocol === "https:" || !local ? "wss:" : "ws:";
-  streamUrl.pathname = `${TERMINAL_PREFIX}/stream`;
-  streamUrl.search = "";
-  streamUrl.searchParams.set("ticket", ticket);
-
   return json(cors, {
     ticket,
     expiresAt,
     broker: { id: BROKER_ID, name: BROKER_NAME },
-    protocol: BROKER_PROTOCOL,
+    protocol: POCKET_BROKER_PROTOCOL,
     stream: {
       transport: "websocket",
-      url: streamUrl.toString(),
-      staleAfterMs: MERIDIAN_QUOTE_STALE_MS,
+      url: streamUrl(request, env, ticket),
+      staleAfterMs: BROKER_QUOTE_STALE_MS,
     },
   });
 }
