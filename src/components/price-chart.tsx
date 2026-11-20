@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera } from "lucide-react";
+import { Camera, Maximize2, Minimize2 } from "lucide-react";
 import {
   CandlestickSeries,
   ColorType,
@@ -218,6 +218,23 @@ export function PriceChart({
   const [invertScale, setInvertScale] = useState(false);
   const [timeZone, setTimeZone] = useState<TimeZoneMode>("utc");
   const [magnet, setMagnet] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    expandButtonRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [expanded]);
 
   const hasVolume = useMemo(
     () => candles.some((candle) => typeof candle.volume === "number" && candle.volume > 0),
@@ -758,9 +775,18 @@ export function PriceChart({
     }`;
 
   return (
-    <div>
-      <div className="relative">
-        <div ref={containerRef} className="h-[420px] w-full sm:h-[480px]" />
+    <div
+      className={
+        expanded
+          ? "fixed inset-0 z-[60] flex h-[100dvh] flex-col bg-background p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:p-4"
+          : undefined
+      }
+    >
+      <div className={expanded ? "relative min-h-0 flex-1" : "relative"}>
+        <div
+          ref={containerRef}
+          className={expanded ? "h-full w-full" : "h-[420px] w-full sm:h-[480px]"}
+        />
         <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-7.5rem)] rounded bg-white/80 px-2 py-1 text-[10px] leading-tight shadow-sm ring-1 ring-slate-200 backdrop-blur">
           {display ? (
             <>
@@ -832,6 +858,15 @@ export function PriceChart({
             onClick={downloadChart}
           >
             <Camera className="h-3 w-3" />
+          </button>
+          <button
+            ref={expandButtonRef}
+            type="button"
+            aria-label={expanded ? "Exit fullscreen chart" : "Expand chart to fullscreen"}
+            className={control(expanded)}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
           </button>
         </div>
       </div>
