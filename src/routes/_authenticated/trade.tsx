@@ -3,8 +3,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Radio, Search, Star } from "lucide-react";
-import { fmt, getInstrument } from "@/lib/market";
+import { ChartNoAxesCombined, Check, Radio, Search, Star } from "lucide-react";
+import { fmt } from "@/lib/market";
 import {
   CHART_INDICATOR_KEYS,
   CHART_INDICATOR_LABELS,
@@ -12,7 +12,6 @@ import {
   type ChartIndicators,
 } from "@/lib/chart-indicators";
 import {
-  CHART_INTERVALS,
   isFallbackQuote,
   isMarketClosedQuote,
   isStaleFeedQuote,
@@ -36,11 +35,8 @@ import {
   SheetContent,
   SheetDescription,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet";
-
-const MOBILE_INTERVALS = CHART_INTERVALS.slice(0, 5);
-const EXTENDED_INTERVALS = CHART_INTERVALS.slice(5);
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export const Route = createFileRoute("/_authenticated/trade")({
   head: () => ({
@@ -72,6 +68,7 @@ function Trade() {
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [limitPrice, setLimitPrice] = useState("");
   const [instrumentQuery, setInstrumentQuery] = useState("");
+  const [instrumentPickerOpen, setInstrumentPickerOpen] = useState(false);
   const [mobileOrderOpen, setMobileOrderOpen] = useState(false);
   const [mobileOrderSide, setMobileOrderSide] = useState<Side>("buy");
   const feedSymbols = useMemo(
@@ -215,6 +212,7 @@ function Trade() {
       instrument.name.toLowerCase().includes(query)
     );
   });
+  const activeIndicatorCount = Object.values(indicators).filter(Boolean).length;
   const chooseType = (next: "market" | "limit") => {
     setOrderType(next);
     if (next === "limit" && limitPrice.trim() === "") setLimitPrice(fmt(symbol, q.mid));
@@ -408,194 +406,143 @@ function Trade() {
         </aside>
 
         <section className="order-1 min-w-0 bg-background xl:order-2">
-          <div className="flex min-h-[68px] flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-3 py-2.5 sm:px-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={() => toggle(symbol)}
-                aria-label={
-                  isFavourite(symbol)
-                    ? `Remove ${symbol} from watchlist`
-                    : `Add ${symbol} to watchlist`
-                }
-                className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:h-8 sm:w-8"
-              >
-                <Star className="h-4 w-4" fill={isFavourite(symbol) ? "currentColor" : "none"} />
-              </button>
-              <Sheet>
-                <SheetTrigger asChild>
+          <Sheet open={instrumentPickerOpen} onOpenChange={setInstrumentPickerOpen}>
+            <SheetContent
+              side="bottom"
+              className="max-h-[82dvh] overflow-hidden rounded-t-xl border-border bg-card p-0 pb-[env(safe-area-inset-bottom)] sm:bottom-auto sm:left-1/2 sm:right-auto sm:top-1/2 sm:w-[480px] sm:max-w-[90vw] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border"
+            >
+              <div className="border-b border-border px-4 pb-3 pt-4">
+                <SheetTitle className="text-base">Choose market</SheetTitle>
+                <SheetDescription className="text-xs">
+                  Search instruments or select from your watchlist.
+                </SheetDescription>
+                <label className="relative mt-3 block">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="search"
+                    value={instrumentQuery}
+                    onChange={(event) => setInstrumentQuery(event.target.value)}
+                    placeholder="Search symbols"
+                    className="h-11 w-full rounded-md border border-input bg-background pl-10 pr-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+                </label>
+              </div>
+              <div className="max-h-[62dvh] overflow-y-auto overscroll-contain">
+                {filteredInstruments.map((instrument) => {
+                  const marketQuote = quoteFor(quotes, instrument.symbol, now);
+                  return (
+                    <div
+                      key={instrument.symbol}
+                      className="flex min-h-14 items-center border-b border-border/70 px-4"
+                    >
+                      <SheetClose asChild>
+                        <button
+                          type="button"
+                          onClick={() => selectSymbol(instrument.symbol)}
+                          className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2 text-left"
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-foreground">
+                              {instrument.symbol}
+                            </span>
+                            <span className="block truncate text-[10px] text-muted-foreground">
+                              {instrument.name}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-right font-mono text-xs">
+                            <span className="block text-foreground">
+                              {fmt(instrument.symbol, marketQuote.bid)}
+                            </span>
+                            <span className="block text-[9px] text-muted-foreground">
+                              {fmt(instrument.symbol, marketQuote.ask)}
+                            </span>
+                          </span>
+                        </button>
+                      </SheetClose>
+                      <button
+                        type="button"
+                        onClick={() => toggle(instrument.symbol)}
+                        aria-label={
+                          isFavourite(instrument.symbol)
+                            ? `Remove ${instrument.symbol} from watchlist`
+                            : `Add ${instrument.symbol} to watchlist`
+                        }
+                        className="ml-3 grid h-10 w-10 shrink-0 place-items-center rounded-md text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        <Star
+                          className="h-4 w-4"
+                          fill={isFavourite(instrument.symbol) ? "currentColor" : "none"}
+                        />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </SheetContent>
+          </Sheet>
+          <div className="flex items-center border-b border-border bg-card px-3 py-1.5 sm:px-4">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Select chart indicators"
+                  className={`relative flex h-9 items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:h-8 ${
+                    activeIndicatorCount > 0
+                      ? "border-primary/45 bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                >
+                  <ChartNoAxesCombined className="h-4 w-4" />
+                  <span className="hidden sm:inline">Indicators</span>
+                  {activeIndicatorCount > 0 ? (
+                    <span className="grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[9px] text-primary-foreground">
+                      {activeIndicatorCount}
+                    </span>
+                  ) : null}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-64 border-border bg-popover p-2">
+                <div className="border-b border-border px-2 pb-2 pt-1">
+                  <div className="text-sm font-semibold text-foreground">Chart indicators</div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Add only the studies you need for this chart.
+                  </p>
+                </div>
+                <div className="py-1">
+                  {CHART_INDICATOR_KEYS.map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={indicators[key]}
+                      onClick={() =>
+                        setIndicators((current) => ({ ...current, [key]: !current[key] }))
+                      }
+                      className="flex h-11 w-full items-center justify-between rounded-md px-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <span>{CHART_INDICATOR_LABELS[key]}</span>
+                      <span
+                        className={`grid h-5 w-5 place-items-center rounded border ${
+                          indicators[key]
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-input text-transparent"
+                        }`}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {activeIndicatorCount > 0 ? (
                   <button
                     type="button"
-                    className="flex min-w-0 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:hidden"
+                    onClick={() => setIndicators(DEFAULT_CHART_INDICATORS)}
+                    className="h-9 w-full rounded-md border border-border text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-1.5">
-                        <span className="text-base font-bold tracking-tight text-foreground">
-                          {symbol}
-                        </span>
-                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                      </span>
-                      <span className="block truncate text-[9px] text-muted-foreground">
-                        {getInstrument(symbol).name}
-                      </span>
-                      <span className="block font-mono text-base font-semibold text-foreground">
-                        {fmt(symbol, q.mid)}
-                      </span>
-                      <span className="block font-mono text-[9px] text-muted-foreground">
-                        B {fmt(symbol, q.bid)} / A {fmt(symbol, q.ask)}
-                      </span>
-                    </span>
+                    Remove all indicators
                   </button>
-                </SheetTrigger>
-                <SheetContent
-                  side="bottom"
-                  className="max-h-[82dvh] overflow-hidden rounded-t-xl border-border bg-card p-0 pb-[env(safe-area-inset-bottom)] sm:hidden"
-                >
-                  <div className="border-b border-border px-4 pb-3 pt-4">
-                    <SheetTitle className="text-base">Choose market</SheetTitle>
-                    <SheetDescription className="text-xs">
-                      Search instruments or select from your watchlist.
-                    </SheetDescription>
-                    <label className="relative mt-3 block">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <input
-                        type="search"
-                        value={instrumentQuery}
-                        onChange={(event) => setInstrumentQuery(event.target.value)}
-                        placeholder="Search symbols"
-                        className="h-11 w-full rounded-md border border-input bg-background pl-10 pr-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                      />
-                    </label>
-                  </div>
-                  <div className="max-h-[62dvh] overflow-y-auto overscroll-contain">
-                    {filteredInstruments.map((instrument) => {
-                      const marketQuote = quoteFor(quotes, instrument.symbol, now);
-                      return (
-                        <div
-                          key={instrument.symbol}
-                          className="flex min-h-14 items-center border-b border-border/70 px-4"
-                        >
-                          <SheetClose asChild>
-                            <button
-                              type="button"
-                              onClick={() => selectSymbol(instrument.symbol)}
-                              className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2 text-left"
-                            >
-                              <span className="min-w-0">
-                                <span className="block text-sm font-semibold text-foreground">
-                                  {instrument.symbol}
-                                </span>
-                                <span className="block truncate text-[10px] text-muted-foreground">
-                                  {instrument.name}
-                                </span>
-                              </span>
-                              <span className="shrink-0 text-right font-mono text-xs">
-                                <span className="block text-foreground">
-                                  {fmt(instrument.symbol, marketQuote.bid)}
-                                </span>
-                                <span className="block text-[9px] text-muted-foreground">
-                                  {fmt(instrument.symbol, marketQuote.ask)}
-                                </span>
-                              </span>
-                            </button>
-                          </SheetClose>
-                          <button
-                            type="button"
-                            onClick={() => toggle(instrument.symbol)}
-                            aria-label={
-                              isFavourite(instrument.symbol)
-                                ? `Remove ${instrument.symbol} from watchlist`
-                                : `Add ${instrument.symbol} to watchlist`
-                            }
-                            className="ml-3 grid h-10 w-10 shrink-0 place-items-center rounded-md text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                          >
-                            <Star
-                              className="h-4 w-4"
-                              fill={isFavourite(instrument.symbol) ? "currentColor" : "none"}
-                            />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </SheetContent>
-              </Sheet>
-              <div className="hidden min-w-0 sm:block">
-                <div className="flex items-baseline gap-2">
-                  <h2 className="text-base font-bold tracking-tight text-foreground">{symbol}</h2>
-                  <span className="truncate text-[10px] text-muted-foreground">
-                    {getInstrument(symbol).name}
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-2 font-mono">
-                  <span className="text-lg font-semibold text-foreground">
-                    {fmt(symbol, q.mid)}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    B {fmt(symbol, q.bid)} / A {fmt(symbol, q.ask)}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 rounded-md border border-border bg-background p-1 sm:hidden">
-              {MOBILE_INTERVALS.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  aria-pressed={timeframe === item.value}
-                  onClick={() => setTimeframe(item.value)}
-                  className={`h-8 min-w-8 rounded px-1.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${timeframe === item.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
-                >
-                  {item.label}
-                </button>
-              ))}
-              <select
-                aria-label="More timeframes"
-                value={EXTENDED_INTERVALS.some((item) => item.value === timeframe) ? timeframe : ""}
-                onChange={(event) => {
-                  if (event.target.value) setTimeframe(event.target.value as ChartInterval);
-                }}
-                className={`h-8 rounded border-0 bg-transparent px-1 text-[10px] font-semibold outline-none ${EXTENDED_INTERVALS.some((item) => item.value === timeframe) ? "text-primary" : "text-muted-foreground"}`}
-              >
-                <option value="">More</option>
-                {EXTENDED_INTERVALS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="hidden max-w-full items-center gap-1 overflow-x-auto rounded-md border border-border bg-background p-1 sm:flex">
-              {CHART_INTERVALS.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  aria-pressed={timeframe === item.value}
-                  onClick={() => setTimeframe(item.value)}
-                  className={`h-7 min-w-8 rounded px-2 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${timeframe === item.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-1 overflow-x-auto border-b border-border bg-card px-3 py-1.5 sm:px-4">
-            <span className="mr-1 text-[10px] font-medium text-muted-foreground">Indicators</span>
-            {CHART_INDICATOR_KEYS.map((key) => (
-              <button
-                key={key}
-                type="button"
-                aria-pressed={indicators[key]}
-                onClick={() => setIndicators((current) => ({ ...current, [key]: !current[key] }))}
-                className={`h-9 rounded border px-2.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:h-7 sm:px-2 ${
-                  indicators[key]
-                    ? "border-primary/45 bg-primary/10 text-primary"
-                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
-                }`}
-              >
-                {CHART_INDICATOR_LABELS[key]}
-              </button>
-            ))}
+                ) : null}
+              </PopoverContent>
+            </Popover>
             <span className="ml-auto whitespace-nowrap text-[9px] text-muted-foreground">
               {candleFeed === "meridian" ? "Meridian MT5" : (candleSource ?? "Loading")}
             </span>
@@ -609,6 +556,8 @@ function Trade() {
             pendingOrders={chartPendingOrders}
             closedPositions={chartClosedPositions}
             indicators={indicators}
+            onOpenMarketPicker={() => setInstrumentPickerOpen(true)}
+            onIntervalChange={setTimeframe}
             onLoadOlder={loadOlder}
             hasOlder={hasOlder}
             isLoadingOlder={isLoadingOlder}

@@ -12,9 +12,9 @@ export const CHART_INDICATOR_LABELS: Record<ChartIndicatorKey, string> = {
 };
 
 export const DEFAULT_CHART_INDICATORS: ChartIndicators = {
-  sma: true,
-  ema: true,
-  rsi: true,
+  sma: false,
+  ema: false,
+  rsi: false,
   macd: false,
 };
 

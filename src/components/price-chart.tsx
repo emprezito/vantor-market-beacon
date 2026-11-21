@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Maximize2, Minimize2, SlidersHorizontal } from "lucide-react";
+import {
+  Camera,
+  ChartCandlestick,
+  ChevronDown,
+  Maximize2,
+  Minimize2,
+  SlidersHorizontal,
+} from "lucide-react";
 import {
   CandlestickSeries,
   ColorType,
@@ -33,7 +40,12 @@ import {
 import { buildChartMarkers } from "@/lib/chart-markers";
 import { mergeLiveBar } from "@/lib/chart-candles";
 import { fmt, getInstrument } from "@/lib/market";
-import { type ChartInterval, type MarketCandle, type MarketQuote } from "@/lib/market-data";
+import {
+  CHART_INTERVALS,
+  type ChartInterval,
+  type MarketCandle,
+  type MarketQuote,
+} from "@/lib/market-data";
 import type { Side } from "@/lib/trading";
 
 type ChartPosition = {
@@ -143,6 +155,8 @@ export function PriceChart({
   pendingOrders,
   closedPositions,
   indicators,
+  onOpenMarketPicker,
+  onIntervalChange,
   onLoadOlder,
   hasOlder = false,
   isLoadingOlder = false,
@@ -155,6 +169,8 @@ export function PriceChart({
   pendingOrders: ChartPendingOrder[];
   closedPositions: ChartClosedPosition[];
   indicators: ChartIndicators;
+  onOpenMarketPicker?: () => void;
+  onIntervalChange?: (interval: ChartInterval) => void;
   onLoadOlder?: () => void;
   hasOlder?: boolean;
   isLoadingOlder?: boolean;
@@ -186,6 +202,7 @@ export function PriceChart({
   const [magnet, setMagnet] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
+  const [showOhlc, setShowOhlc] = useState(false);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
   const mobileExpandButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -790,35 +807,73 @@ export function PriceChart({
               : "h-[clamp(320px,48dvh,440px)] w-full sm:h-[580px] xl:h-[calc(100dvh-11rem)] xl:min-h-[560px]"
           }
         />
-        <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-6.5rem)] rounded border border-border bg-card/85 px-2 py-1.5 text-[10px] leading-tight backdrop-blur sm:max-w-[calc(100%-14rem)]">
-          {display ? (
-            <>
-              <div className="flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-foreground/80">
-                <span>O {fmt(symbol, display.open)}</span>
-                <span>H {fmt(symbol, display.high)}</span>
-                <span>L {fmt(symbol, display.low)}</span>
-                <span>C {fmt(symbol, display.close)}</span>
-                <span className={change >= 0 ? "text-positive" : "text-negative"}>
-                  {change >= 0 ? "+" : ""}
-                  {changePct.toFixed(2)}%
-                </span>
-                {display.volume != null ? (
-                  <span>Vol {compactVolume.format(display.volume)}</span>
-                ) : null}
-              </div>
-              <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-[9px] text-muted-foreground">
-                {display.sma != null ? <span>SMA {fmt(symbol, display.sma)}</span> : null}
-                {display.ema != null ? <span>EMA {fmt(symbol, display.ema)}</span> : null}
-                {display.rsi != null ? <span>RSI {display.rsi.toFixed(1)}</span> : null}
-                {display.macd != null ? <span>MACD {display.macd.toFixed(5)}</span> : null}
-                {display.signal != null ? <span>S {display.signal.toFixed(5)}</span> : null}
-                {display.histogram != null ? <span>H {display.histogram.toFixed(5)}</span> : null}
-              </div>
-            </>
-          ) : (
-            <span className="text-muted-foreground">Loading candles…</span>
-          )}
+        <div className="absolute left-2 top-2 z-20 flex items-center gap-1">
+          <button
+            type="button"
+            aria-label="Choose market"
+            onClick={onOpenMarketPicker}
+            className="flex h-9 max-w-28 items-center gap-1.5 rounded-md border border-border bg-card/90 px-2.5 text-xs font-semibold text-foreground backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <span className="truncate">{symbol}</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          </button>
+          <button
+            type="button"
+            aria-label={showOhlc ? "Hide OHLC details" : "Show OHLC details"}
+            aria-expanded={showOhlc}
+            onClick={() => setShowOhlc((value) => !value)}
+            className={`grid h-9 w-9 place-items-center rounded-md border backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+              showOhlc
+                ? "border-primary/45 bg-primary/15 text-primary"
+                : "border-border bg-card/90 text-muted-foreground"
+            }`}
+          >
+            <ChartCandlestick className="h-4 w-4" />
+          </button>
+          <select
+            aria-label="Chart timeframe"
+            value={interval}
+            onChange={(event) => onIntervalChange?.(event.target.value as ChartInterval)}
+            className="h-9 rounded-md border border-border bg-card/90 px-2 font-mono text-[10px] font-semibold text-foreground outline-none backdrop-blur focus:border-primary"
+          >
+            {CHART_INTERVALS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
         </div>
+        {showOhlc ? (
+          <div className="pointer-events-none absolute left-2 top-12 z-10 max-w-[calc(100%-1rem)] rounded border border-border bg-card/90 px-2.5 py-2 text-[10px] leading-tight backdrop-blur sm:max-w-[calc(100%-14rem)]">
+            {display ? (
+              <>
+                <div className="flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-foreground/80">
+                  <span>O {fmt(symbol, display.open)}</span>
+                  <span>H {fmt(symbol, display.high)}</span>
+                  <span>L {fmt(symbol, display.low)}</span>
+                  <span>C {fmt(symbol, display.close)}</span>
+                  <span className={change >= 0 ? "text-positive" : "text-negative"}>
+                    {change >= 0 ? "+" : ""}
+                    {changePct.toFixed(2)}%
+                  </span>
+                  {display.volume != null ? (
+                    <span>Vol {compactVolume.format(display.volume)}</span>
+                  ) : null}
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-[9px] text-muted-foreground">
+                  {display.sma != null ? <span>SMA {fmt(symbol, display.sma)}</span> : null}
+                  {display.ema != null ? <span>EMA {fmt(symbol, display.ema)}</span> : null}
+                  {display.rsi != null ? <span>RSI {display.rsi.toFixed(1)}</span> : null}
+                  {display.macd != null ? <span>MACD {display.macd.toFixed(5)}</span> : null}
+                  {display.signal != null ? <span>S {display.signal.toFixed(5)}</span> : null}
+                  {display.histogram != null ? <span>H {display.histogram.toFixed(5)}</span> : null}
+                </div>
+              </>
+            ) : (
+              <span className="text-muted-foreground">Loading candles…</span>
+            )}
+          </div>
+        ) : null}
         <div className="absolute right-2 top-2 z-10 hidden gap-1 sm:flex">
           <button
             type="button"

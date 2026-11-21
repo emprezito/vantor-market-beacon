@@ -53,6 +53,11 @@ describe("chart indicators", () => {
   });
 
   it("defaults to the core overlay and oscillator set", () => {
-    expect(DEFAULT_CHART_INDICATORS).toEqual({ sma: true, ema: true, rsi: true, macd: false });
+    expect(DEFAULT_CHART_INDICATORS).toEqual({
+      sma: false,
+      ema: false,
+      rsi: false,
+      macd: false,
+    });
   });
 });

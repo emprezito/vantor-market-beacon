@@ -92,6 +92,16 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
 describe("price chart fullscreen", () => {
+  it("keeps OHLC details collapsed until requested", () => {
+    renderChart();
+    expect(screen.queryByText("Loading candles…")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show OHLC details" }));
+
+    expect(screen.getByRole("button", { name: "Hide OHLC details" })).toBeInTheDocument();
+    expect(screen.getByText("Loading candles…")).toBeInTheDocument();
+  });
+
   it("expands to a fullscreen overlay and locks page scrolling", () => {
     renderChart();
     fireEvent.click(screen.getByRole("button", { name: "Expand chart to fullscreen" }));
