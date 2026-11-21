@@ -27,15 +27,13 @@ type RealtimeGlobals = typeof globalThis & {
   __env__?: WorkerEnv;
 };
 
-let serverEntryPromise: Promise<ServerEntry> | undefined;
+let serverEntry: ServerEntry | undefined;
 
 async function getServerEntry(): Promise<ServerEntry> {
-  if (!serverEntryPromise) {
-    serverEntryPromise = import("@tanstack/react-start/server-entry").then(
-      (m) => (m.default ?? m) as ServerEntry,
-    );
-  }
-  return serverEntryPromise;
+  if (serverEntry) return serverEntry;
+  const module = await import("@tanstack/react-start/server-entry");
+  serverEntry = (module.default ?? module) as ServerEntry;
+  return serverEntry;
 }
 
 // h3 swallows in-handler throws into a normal 500 Response with body
@@ -67,7 +65,7 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
-      const runtimeEnv = (globalThis as RealtimeGlobals).__env__ ?? ((env ?? {}) as WorkerEnv);
+      const runtimeEnv = (env ?? {}) as WorkerEnv;
       (globalThis as RealtimeGlobals).__env__ = runtimeEnv;
 
       const discovery = handleBrokerDiscovery(request, runtimeEnv);

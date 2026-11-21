@@ -1,5 +1,6 @@
 import { createFileRoute, redirect, Outlet, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/hooks/use-account";
 import { DesktopSidebar, MobileBottomNav, MobileHeader } from "@/components/app-nav";
@@ -43,8 +44,13 @@ function Layout() {
   };
   const selectAccount = (id: string) => setActiveAccount(id);
 
+  useEffect(() => {
+    document.documentElement.classList.add("dark", "vantor-terminal");
+    return () => document.documentElement.classList.remove("dark", "vantor-terminal");
+  }, []);
+
   return (
-    <div className="min-h-screen bg-background lg:pl-64">
+    <div className="min-h-screen bg-background xl:pl-52">
       <DesktopSidebar
         accounts={accounts}
         activeAccount={activeAccount}
@@ -61,7 +67,7 @@ function Layout() {
         ordersActive={ordersActive}
         partner={partner}
       />
-      <div className={partner ? "pb-0" : "pb-20 lg:pb-0"}>
+      <div className={partner ? "pb-0" : "pb-20 xl:pb-0"}>
         <Outlet />
       </div>
       {!partner && <MobileBottomNav ordersActive={ordersActive} />}

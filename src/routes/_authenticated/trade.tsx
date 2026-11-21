@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Star } from "lucide-react";
+import { Radio, Star } from "lucide-react";
 import { fmt, getInstrument } from "@/lib/market";
 import {
   CHART_INDICATOR_KEYS,
@@ -170,14 +170,15 @@ function Trade() {
     q.feedFallback || realtimeStatus === "unauthorized" || realtimeStatus === "error"
       ? "bg-destructive/15 text-destructive"
       : feedBlocked || realtimeStatus === "stale" || realtimeStatus === "reconnecting"
-        ? "bg-amber-500/15 text-amber-700"
+        ? "bg-warning/15 text-warning"
         : q.source === "live"
-          ? "bg-accent/15 text-accent"
+          ? "bg-positive/15 text-positive"
           : q.source === "cached"
             ? "bg-muted text-muted-foreground"
-            : "bg-amber-500/15 text-amber-700";
+            : "bg-warning/15 text-warning";
   const money = (n: number) => formatMoney(n, currency);
-  const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
+  const input =
+    "mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground/60 focus:border-primary focus:ring-1 focus:ring-primary";
   const limitValid =
     orderType === "market" ||
     (limitPrice.trim() !== "" && Number.isFinite(Number(limitPrice)) && Number(limitPrice) > 0);
@@ -225,166 +226,220 @@ function Trade() {
   }
 
   return (
-    <main className="mx-auto max-w-7xl space-y-3 px-3 pb-6 pt-3 sm:space-y-6 sm:px-6 sm:py-6">
-      <div className="hidden flex-wrap items-center justify-between gap-2 sm:flex">
-        <h1 className="text-lg font-bold sm:text-2xl">Trading terminal</h1>
-      </div>
-      {readOnly && (
-        <p className="rounded-md bg-muted px-4 py-2 text-sm text-muted-foreground">
-          Investor access — this account is read-only.
+    <main className="min-h-[calc(100dvh-3.5rem)] bg-background xl:min-h-screen">
+      <header className="border-b border-border bg-card">
+        <div className="flex min-h-14 flex-wrap items-center gap-x-6 gap-y-2 px-3 py-2 sm:px-4">
+          <div className="mr-auto min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-bold tracking-tight text-foreground">Market workspace</h1>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${feedTone}`}
+                title={
+                  q.feedFallback
+                    ? "Meridian is unavailable for this symbol. Trading is paused."
+                    : (realtimeError ?? undefined)
+                }
+              >
+                <Radio className="h-2.5 w-2.5" />
+                {feedLabel}
+              </span>
+            </div>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {activeAccount.nickname} · #{activeAccount.login} · {activeAccount.server}
+            </p>
+          </div>
+          <div className="flex max-w-full gap-5 overflow-x-auto pb-0.5 sm:gap-7">
+            {[
+              ["Balance", balance],
+              ["Equity", equity],
+              ["Margin", used],
+              ["Free margin", equity - used],
+            ].map(([label, value]) => (
+              <div key={label as string} className="min-w-max">
+                <div className="text-[10px] font-medium text-muted-foreground">{label}</div>
+                <div className="font-mono text-xs font-semibold text-foreground sm:text-sm">
+                  {money(value as number)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {readOnly ? (
+        <p className="border-b border-border bg-warning/10 px-4 py-2 text-xs text-warning">
+          Investor access is read-only. Market data and account activity remain available.
         </p>
-      )}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
-        {[
-          ["Balance", balance],
-          ["Equity", equity],
-          ["Margin used", used],
-          ["Free margin", equity - used],
-        ].map(([l, v]) => (
-          <div key={l as string} className="min-w-0 rounded-xl bg-muted p-3 sm:p-4">
-            <div className="text-[11px] text-muted-foreground sm:text-xs">{l}</div>
-            <div className="break-words text-base font-bold sm:text-xl">{money(v as number)}</div>
-          </div>
-        ))}
-      </div>
+      ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[240px_1fr_280px]">
-        <aside className="rounded-xl border p-3">
-          <label htmlFor="instrument-picker" className="text-xs font-medium text-muted-foreground">
-            Choose instrument
-          </label>
-          <div className="mt-1 flex items-center gap-1.5">
-            <select
-              id="instrument-picker"
-              value={symbol}
-              onChange={(e) => selectSymbol(e.target.value)}
-              className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-            >
-              {instruments.map((i) => (
-                <option key={i.symbol} value={i.symbol}>
-                  {i.symbol} · {i.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => toggle(symbol)}
-              aria-label={
-                isFavourite(symbol)
-                  ? `Remove ${symbol} from watchlist`
-                  : `Add ${symbol} to watchlist`
-              }
-              title={isFavourite(symbol) ? "Remove from watchlist" : "Add to watchlist"}
-              className={`rounded-md border border-input p-1.5 ${isFavourite(symbol) ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              <Star className="h-4 w-4" fill={isFavourite(symbol) ? "currentColor" : "none"} />
-            </button>
+      <div className="grid bg-border xl:min-h-[calc(100dvh-3.5rem)] xl:grid-cols-[220px_minmax(0,1fr)_280px] xl:gap-px">
+        <aside className="order-3 border-t border-border bg-card xl:order-1 xl:border-t-0">
+          <div className="border-b border-border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-xs font-semibold text-foreground">Instruments</h2>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {watchSymbols.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <select
+                id="instrument-picker"
+                aria-label="Choose instrument"
+                value={symbol}
+                onChange={(event) => selectSymbol(event.target.value)}
+                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-primary"
+              >
+                {instruments.map((instrument) => (
+                  <option key={instrument.symbol} value={instrument.symbol}>
+                    {instrument.symbol} · {instrument.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => toggle(symbol)}
+                aria-label={
+                  isFavourite(symbol)
+                    ? `Remove ${symbol} from watchlist`
+                    : `Add ${symbol} to watchlist`
+                }
+                title={isFavourite(symbol) ? "Remove from watchlist" : "Add to watchlist"}
+                className={`grid h-9 w-9 shrink-0 place-items-center rounded-md border border-input transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isFavourite(symbol) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+              >
+                <Star
+                  className="h-3.5 w-3.5"
+                  fill={isFavourite(symbol) ? "currentColor" : "none"}
+                />
+              </button>
+            </div>
           </div>
-
-          <div className="mt-4 flex items-center justify-between text-xs font-medium text-muted-foreground">
-            <span>Watchlist</span>
-            <span>{watchSymbols.length}</span>
+          <div className="grid grid-cols-[1fr_auto_auto] gap-2 border-b border-border px-3 py-2 text-[9px] font-medium text-muted-foreground">
+            <span>Market</span>
+            <span>Bid</span>
+            <span>Ask</span>
           </div>
-          <div className="mt-1 max-h-80 overflow-y-auto">
-            {watch.length === 0 && (
-              <p className="px-1 py-3 text-xs text-muted-foreground">
-                No instruments yet. Pick one above and tap the star to add it.
+          <div className="max-h-72 overflow-y-auto xl:max-h-[calc(100dvh-10.5rem)]">
+            {watch.length === 0 ? (
+              <p className="px-3 py-5 text-xs leading-relaxed text-muted-foreground">
+                Select a market above and add it to your watchlist.
               </p>
-            )}
-            {watch.map((i) => {
-              const qq = quoteFor(quotes, i.symbol, now);
+            ) : null}
+            {watch.map((instrument) => {
+              const quote = quoteFor(quotes, instrument.symbol, now);
+              const selected = symbol === instrument.symbol;
               return (
                 <div
-                  key={i.symbol}
-                  className={`flex items-center border-b last:border-0 ${symbol === i.symbol ? "bg-primary/15" : ""}`}
+                  key={instrument.symbol}
+                  className={`group grid grid-cols-[1fr_auto_auto] items-center gap-2 border-b border-border/70 px-3 py-2.5 transition-colors ${selected ? "bg-primary/8 shadow-[inset_2px_0_0_var(--color-primary)]" : "hover:bg-accent/60"}`}
                 >
                   <button
                     type="button"
-                    onClick={() => selectSymbol(i.symbol)}
-                    className="flex h-11 min-w-0 flex-1 items-center justify-between gap-2 px-2 text-left text-sm hover:bg-muted"
+                    onClick={() => selectSymbol(instrument.symbol)}
+                    className="min-w-0 text-left focus-visible:outline-none"
                   >
-                    <span className="font-semibold">{i.symbol}</span>
-                    <span className="font-mono text-xs">{fmt(i.symbol, qq.bid)}</span>
+                    <span className="block text-xs font-semibold text-foreground">
+                      {instrument.symbol}
+                    </span>
+                    <span className="block truncate text-[9px] text-muted-foreground">
+                      {instrument.name}
+                    </span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => toggle(i.symbol)}
-                    aria-label={`Remove ${i.symbol} from watchlist`}
-                    title="Remove from watchlist"
-                    className="px-2 py-2 text-primary hover:opacity-70"
+                    onClick={() => selectSymbol(instrument.symbol)}
+                    className="font-mono text-[10px] text-foreground focus-visible:outline-none"
                   >
-                    <Star className="h-3.5 w-3.5" fill="currentColor" />
+                    {fmt(instrument.symbol, quote.bid)}
                   </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => selectSymbol(instrument.symbol)}
+                      className="font-mono text-[10px] text-foreground focus-visible:outline-none"
+                    >
+                      {fmt(instrument.symbol, quote.ask)}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggle(instrument.symbol)}
+                      aria-label={`Remove ${instrument.symbol} from watchlist`}
+                      className="hidden text-primary/65 hover:text-primary focus-visible:block group-hover:block"
+                    >
+                      <Star className="h-3 w-3" fill="currentColor" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
           </div>
         </aside>
 
-        <section className="rounded-xl border p-4">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-bold sm:text-xl">{symbol}</h2>
-                <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${feedTone}`}
-                  title={
-                    q.feedFallback
-                      ? "Meridian is unavailable for this symbol. Trading is paused."
-                      : (realtimeError ?? undefined)
-                  }
-                >
-                  {feedLabel}
-                </span>
+        <section className="order-1 min-w-0 bg-background xl:order-2">
+          <div className="flex min-h-[68px] flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-3 py-2.5 sm:px-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={() => toggle(symbol)}
+                aria-label={
+                  isFavourite(symbol)
+                    ? `Remove ${symbol} from watchlist`
+                    : `Add ${symbol} to watchlist`
+                }
+                className="text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <Star className="h-4 w-4" fill={isFavourite(symbol) ? "currentColor" : "none"} />
+              </button>
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-2">
+                  <h2 className="text-base font-bold tracking-tight text-foreground">{symbol}</h2>
+                  <span className="truncate text-[10px] text-muted-foreground">
+                    {getInstrument(symbol).name}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2 font-mono">
+                  <span className="text-lg font-semibold text-foreground">
+                    {fmt(symbol, q.mid)}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    B {fmt(symbol, q.bid)} / A {fmt(symbol, q.ask)}
+                  </span>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {getInstrument(symbol).name} ·{" "}
-                {CHART_INTERVALS.find((item) => item.value === timeframe)?.label}
-              </p>
             </div>
-            <div className="text-right">
-              <span className="font-mono text-xl sm:text-2xl">{fmt(symbol, q.mid)}</span>
-              <div className="font-mono text-[11px] text-muted-foreground">
-                B {fmt(symbol, q.bid)} · A {fmt(symbol, q.ask)}
-              </div>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1 rounded-md bg-muted p-0.5">
+            <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-md border border-border bg-background p-1">
               {CHART_INTERVALS.map((item) => (
                 <button
                   key={item.value}
                   type="button"
+                  aria-pressed={timeframe === item.value}
                   onClick={() => setTimeframe(item.value)}
-                  className={`rounded px-2 py-1 text-xs ${timeframe === item.value ? "bg-background font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`h-7 min-w-8 rounded px-2 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${timeframe === item.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
                 >
                   {item.label}
                 </button>
               ))}
             </div>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Candles: {candleFeed === "meridian" ? "Meridian MT5" : (candleSource ?? "loading")}
-            </span>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1">
-            <span className="mr-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-              Indicators
-            </span>
+          <div className="flex items-center gap-1 overflow-x-auto border-b border-border bg-card px-3 py-1.5 sm:px-4">
+            <span className="mr-1 text-[10px] font-medium text-muted-foreground">Indicators</span>
             {CHART_INDICATOR_KEYS.map((key) => (
               <button
                 key={key}
                 type="button"
                 aria-pressed={indicators[key]}
                 onClick={() => setIndicators((current) => ({ ...current, [key]: !current[key] }))}
-                className={`rounded border px-2 py-1 text-[11px] ${
+                className={`h-7 rounded border px-2 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                   indicators[key]
-                    ? "border-primary/40 bg-primary/10 font-semibold text-primary"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "border-primary/45 bg-primary/10 text-primary"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
                 }`}
               >
                 {CHART_INDICATOR_LABELS[key]}
               </button>
             ))}
+            <span className="ml-auto whitespace-nowrap text-[9px] text-muted-foreground">
+              {candleFeed === "meridian" ? "Meridian MT5" : (candleSource ?? "Loading")}
+            </span>
           </div>
           <PriceChart
             symbol={symbol}
@@ -401,119 +456,148 @@ function Trade() {
           />
         </section>
 
-        <section className="space-y-3 rounded-xl border p-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="font-bold">New order</h3>
-            <div className="grid grid-cols-2 gap-0.5 rounded-md bg-muted p-0.5 text-xs">
-              {(["market", "limit"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => chooseType(t)}
-                  className={`rounded px-2.5 py-1 capitalize ${orderType === t ? "bg-background font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  {t}
-                </button>
-              ))}
+        <section className="order-2 border-y border-border bg-card xl:order-3 xl:border-y-0">
+          <div className="border-b border-border px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-foreground">New order</h3>
+                <p className="text-[10px] text-muted-foreground">
+                  {symbol} · 1:{leverage}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-background p-1 text-[10px]">
+                {(["market", "limit"] as const).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    aria-pressed={orderType === type}
+                    onClick={() => chooseType(type)}
+                    className={`h-7 rounded px-2.5 capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${orderType === type ? "bg-accent font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-          <label className="block text-xs text-muted-foreground">
-            Volume (lots)
-            <input
-              className={input}
-              type="number"
-              step="0.01"
-              min="0.01"
-              value={lots}
-              onChange={(e) => setLots(e.target.value)}
-            />
-          </label>
-          {orderType === "limit" && (
-            <label className="block text-xs text-muted-foreground">
-              Limit price
+
+          <div className="grid grid-cols-2 border-b border-border">
+            <div className="border-r border-border px-4 py-3">
+              <div className="text-[9px] font-medium text-negative">Sell</div>
+              <div className="font-mono text-sm font-semibold text-foreground">
+                {fmt(symbol, q.bid)}
+              </div>
+            </div>
+            <div className="px-4 py-3 text-right">
+              <div className="text-[9px] font-medium text-positive">Buy</div>
+              <div className="font-mono text-sm font-semibold text-foreground">
+                {fmt(symbol, q.ask)}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 p-4">
+            <label className="block text-[11px] font-medium text-muted-foreground">
+              Volume (lots)
               <input
                 className={input}
                 type="number"
-                step="any"
-                min="0"
-                value={limitPrice}
-                onChange={(e) => setLimitPrice(e.target.value)}
-                placeholder={fmt(symbol, q.mid)}
+                step="0.01"
+                min="0.01"
+                value={lots}
+                onChange={(event) => setLots(event.target.value)}
               />
             </label>
-          )}
-          <label className="block text-xs text-muted-foreground">
-            Stop loss (optional)
-            <input
-              className={input}
-              type="number"
-              step="any"
-              value={sl}
-              onChange={(e) => setSl(e.target.value)}
-              placeholder="Price"
-            />
-          </label>
-          <label className="block text-xs text-muted-foreground">
-            Take profit (optional)
-            <input
-              className={input}
-              type="number"
-              step="any"
-              value={tp}
-              onChange={(e) => setTp(e.target.value)}
-              placeholder="Price"
-            />
-          </label>
-          {orderType === "limit" && (
-            <p className="text-[11px] leading-snug text-muted-foreground">
-              Buy limits fill at or below the ask ({fmt(symbol, q.ask)}); sell limits fill at or
-              above the bid ({fmt(symbol, q.bid)}). Stop levels are checked against the limit price.
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Margin needed:{" "}
-            {money(
-              calcMargin(
-                symbol,
-                Number(lots) || 0,
-                orderType === "limit" ? Number(limitPrice) || q.mid : q.mid,
-                leverage,
-              ) * fxRate,
-            )}{" "}
-            (1:{leverage})
-          </p>
-          {feedBlocked && (
-            <p className="text-xs text-amber-700">
-              Meridian pricing is stale. New orders are paused; closing positions remains available.
-            </p>
-          )}
-          {fallbackBlocked && (
-            <p className="text-xs text-amber-700">
-              Live prices are unavailable. New orders are paused until the market feed recovers.
-            </p>
-          )}
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant="destructive"
-              disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
-              onClick={() => place.mutate("sell")}
-              className="h-16 flex-col py-3 font-semibold"
-            >
-              {orderType === "limit" ? "Sell limit" : "Sell"}
-              <div className="font-mono text-xs">
-                {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.bid : q.bid)}
-              </div>
-            </Button>
-            <Button
-              disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
-              onClick={() => place.mutate("buy")}
-              className="h-16 flex-col bg-accent py-3 font-semibold text-accent-foreground hover:bg-accent/90"
-            >
-              {orderType === "limit" ? "Buy limit" : "Buy"}
-              <div className="font-mono text-xs">
-                {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.ask : q.ask)}
-              </div>
-            </Button>
+            {orderType === "limit" ? (
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                Limit price
+                <input
+                  className={input}
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={limitPrice}
+                  onChange={(event) => setLimitPrice(event.target.value)}
+                  placeholder={fmt(symbol, q.mid)}
+                />
+              </label>
+            ) : null}
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                Stop loss
+                <input
+                  className={input}
+                  type="number"
+                  step="any"
+                  value={sl}
+                  onChange={(event) => setSl(event.target.value)}
+                  placeholder="Price"
+                />
+              </label>
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                Take profit
+                <input
+                  className={input}
+                  type="number"
+                  step="any"
+                  value={tp}
+                  onChange={(event) => setTp(event.target.value)}
+                  placeholder="Price"
+                />
+              </label>
+            </div>
+            {orderType === "limit" ? (
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                Buy limits fill at or below ask; sell limits fill at or above bid.
+              </p>
+            ) : null}
+            <div className="flex items-center justify-between border-y border-border py-2.5 text-[11px]">
+              <span className="text-muted-foreground">Required margin</span>
+              <span className="font-mono font-semibold text-foreground">
+                {money(
+                  calcMargin(
+                    symbol,
+                    Number(lots) || 0,
+                    orderType === "limit" ? Number(limitPrice) || q.mid : q.mid,
+                    leverage,
+                  ) * fxRate,
+                )}
+              </span>
+            </div>
+            {feedBlocked ? (
+              <p className="rounded-md border border-warning/25 bg-warning/10 p-2 text-[10px] leading-relaxed text-warning">
+                Meridian pricing is stale. New orders are paused.
+              </p>
+            ) : null}
+            {fallbackBlocked ? (
+              <p className="rounded-md border border-warning/25 bg-warning/10 p-2 text-[10px] leading-relaxed text-warning">
+                Live pricing is unavailable. New orders are paused.
+              </p>
+            ) : null}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <Button
+                variant="negative"
+                disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
+                onClick={() => place.mutate("sell")}
+                className="h-14 flex-col gap-0.5"
+              >
+                <span>{orderType === "limit" ? "Sell limit" : "Sell"}</span>
+                <span className="font-mono text-[10px] font-medium opacity-85">
+                  {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.bid : q.bid)}
+                </span>
+              </Button>
+              <Button
+                variant="positive"
+                disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
+                onClick={() => place.mutate("buy")}
+                className="h-14 flex-col gap-0.5"
+              >
+                <span>{orderType === "limit" ? "Buy limit" : "Buy"}</span>
+                <span className="font-mono text-[10px] font-medium opacity-85">
+                  {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.ask : q.ask)}
+                </span>
+              </Button>
+            </div>
           </div>
         </section>
       </div>

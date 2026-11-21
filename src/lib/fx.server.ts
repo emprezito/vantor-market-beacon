@@ -15,7 +15,6 @@ type CachedRate = {
 };
 
 const rateCache = new Map<string, CachedRate>();
-const inFlightRates = new Map<string, Promise<number>>();
 
 function normalizeCurrency(currency: string): string {
   return currency.trim().toUpperCase();
@@ -76,27 +75,18 @@ export async function loadFxRate(currency: string): Promise<number> {
   const cached = rateCache.get(code);
   if (cached && now - cached.fetchedAt < fxRateTtlMs()) return cached.rate;
 
-  const pending = inFlightRates.get(code);
-  if (pending) return pending;
-
   const fallback = fallbackFxRate(code);
-  const request = fetchFxRate(code)
-    .then((rate) => {
-      const safe = Number.isFinite(rate) && rate > 0 ? rate : fallback;
-      rateCache.set(code, { rate: safe, fetchedAt: Date.now() });
-      return safe;
-    })
-    .catch(() => {
-      rateCache.set(code, { rate: fallback, fetchedAt: Date.now() });
-      return fallback;
-    })
-    .finally(() => inFlightRates.delete(code));
-
-  inFlightRates.set(code, request);
-  return request;
+  try {
+    const rate = await fetchFxRate(code);
+    const safe = Number.isFinite(rate) && rate > 0 ? rate : fallback;
+    rateCache.set(code, { rate: safe, fetchedAt: Date.now() });
+    return safe;
+  } catch {
+    rateCache.set(code, { rate: fallback, fetchedAt: Date.now() });
+    return fallback;
+  }
 }
 
 export function resetFxRateCache() {
   rateCache.clear();
-  inFlightRates.clear();
 }

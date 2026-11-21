@@ -90,15 +90,15 @@ function OrdersPage() {
   const readOnly = activeAccount.access_role === "investor";
 
   return (
-    <main className="mx-auto max-w-7xl space-y-3 px-3 pb-6 pt-3 sm:space-y-6 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-lg font-bold sm:text-2xl">Orders</h1>
-        <p className="text-xs text-muted-foreground sm:text-sm">
+    <main className="mx-auto max-w-[1440px] space-y-4 px-3 py-4 sm:px-5 sm:py-5">
+      <div className="border-b border-border pb-3">
+        <h1 className="text-lg font-bold tracking-tight">Orders and positions</h1>
+        <p className="text-xs text-muted-foreground">
           {activeAccount.nickname} · #{activeAccount.login}
         </p>
       </div>
       {readOnly && (
-        <p className="rounded-md bg-muted px-4 py-2 text-sm text-muted-foreground">
+        <p className="rounded-md border border-warning/25 bg-warning/10 px-4 py-2 text-xs text-warning">
           Investor access — this account is read-only.
         </p>
       )}

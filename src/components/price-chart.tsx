@@ -215,14 +215,14 @@ export function PriceChart({
   const lastIndicatorValues = useMemo(() => {
     const closes = candles.map((candle) => candle.close);
     const lastValue = (points: { value: number }[]) => points[points.length - 1]?.value;
-    const macdValues = macdData(candles, closes);
+    const macdValues = indicators.macd ? macdData(candles, closes) : null;
     return {
       sma: indicators.sma ? lastValue(lineData(candles, sma(closes, 20))) : undefined,
       ema: indicators.ema ? lastValue(lineData(candles, ema(closes, 50))) : undefined,
       rsi: indicators.rsi ? lastValue(lineData(candles, rsi(closes, 14))) : undefined,
-      macd: indicators.macd ? lastValue(macdValues.macd) : undefined,
-      signal: indicators.macd ? lastValue(macdValues.signal) : undefined,
-      histogram: indicators.macd ? lastValue(macdValues.histogram) : undefined,
+      macd: macdValues ? lastValue(macdValues.macd) : undefined,
+      signal: macdValues ? lastValue(macdValues.signal) : undefined,
+      histogram: macdValues ? lastValue(macdValues.histogram) : undefined,
     };
   }, [candles, indicators.ema, indicators.macd, indicators.rsi, indicators.sma]);
 
@@ -250,27 +250,27 @@ export function PriceChart({
     const chart = createChart(container, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: "#ffffff" },
-        textColor: "#64748b",
-        fontFamily: "Manrope, sans-serif",
+        background: { type: ColorType.Solid, color: "#080b10" },
+        textColor: "#7f8a9b",
+        fontFamily: "IBM Plex Mono, monospace",
         panes: {
           enableResize: true,
-          separatorColor: "#e2e8f0",
-          separatorHoverColor: "rgba(148, 163, 184, 0.25)",
+          separatorColor: "#273140",
+          separatorHoverColor: "rgba(201, 167, 92, 0.28)",
         },
       },
       grid: {
-        vertLines: { color: "#f1f5f9" },
-        horzLines: { color: "#f1f5f9" },
+        vertLines: { color: "#151b24" },
+        horzLines: { color: "#151b24" },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: "#94a3b8", labelBackgroundColor: "#334155" },
-        horzLine: { color: "#94a3b8", labelBackgroundColor: "#334155" },
+        vertLine: { color: "#5d6877", labelBackgroundColor: "#202936" },
+        horzLine: { color: "#5d6877", labelBackgroundColor: "#202936" },
       },
-      rightPriceScale: { borderColor: "#e2e8f0", scaleMargins: { top: 0.12, bottom: 0.12 } },
+      rightPriceScale: { borderColor: "#273140", scaleMargins: { top: 0.12, bottom: 0.12 } },
       timeScale: {
-        borderColor: "#e2e8f0",
+        borderColor: "#273140",
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 4,
@@ -278,10 +278,10 @@ export function PriceChart({
     });
 
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#16a34a",
-      downColor: "#dc2626",
-      wickUpColor: "#16a34a",
-      wickDownColor: "#dc2626",
+      upColor: "#35c98b",
+      downColor: "#f05d67",
+      wickUpColor: "#35c98b",
+      wickDownColor: "#f05d67",
       borderVisible: false,
       priceFormat: { type: "price", precision: digits, minMove: 1 / 10 ** digits },
     });
@@ -412,7 +412,7 @@ export function PriceChart({
     if (indicators.sma) {
       if (!smaRef.current) {
         smaRef.current = chart.addSeries(LineSeries, {
-          color: "#d97706",
+          color: "#c9a75c",
           lineWidth: 2,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -434,7 +434,7 @@ export function PriceChart({
     if (indicators.ema) {
       if (!emaRef.current) {
         emaRef.current = chart.addSeries(LineSeries, {
-          color: "#7c3aed",
+          color: "#9e7bff",
           lineWidth: 2,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -458,7 +458,7 @@ export function PriceChart({
         const pane = chart.addPane();
         pane.setStretchFactor(1);
         const rsiSeries = pane.addSeries(LineSeries, {
-          color: "#0891b2",
+          color: "#4fb7d8",
           lineWidth: 2,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -469,7 +469,7 @@ export function PriceChart({
         });
         rsiSeries.createPriceLine({
           price: 70,
-          color: "#94a3b8",
+          color: "#5d6877",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: false,
@@ -477,7 +477,7 @@ export function PriceChart({
         });
         rsiSeries.createPriceLine({
           price: 30,
-          color: "#94a3b8",
+          color: "#5d6877",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: false,
@@ -516,7 +516,7 @@ export function PriceChart({
           title: CHART_INDICATOR_LABELS.macd,
         });
         macdRef.current = pane.addSeries(LineSeries, {
-          color: "#2563eb",
+          color: "#5b8def",
           lineWidth: 2,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -524,7 +524,7 @@ export function PriceChart({
           title: "MACD",
         });
         macdSignalRef.current = pane.addSeries(LineSeries, {
-          color: "#f59e0b",
+          color: "#c9a75c",
           lineWidth: 2,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -548,7 +548,7 @@ export function PriceChart({
           values.histogram.map((point) => ({
             time: point.time as UTCTimestamp,
             value: point.value,
-            color: point.value >= 0 ? "#16a34a" : "#dc2626",
+            color: point.value >= 0 ? "#35c98b" : "#f05d67",
           })),
         );
       }
@@ -585,7 +585,7 @@ export function PriceChart({
           priceLineVisible: false,
           lastValueVisible: false,
           priceFormat: { type: "volume" },
-          color: "#94a3b8",
+          color: "#5d6877",
         });
         volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.2, bottom: 0 } });
         volumePaneRef.current = pane;
@@ -602,7 +602,7 @@ export function PriceChart({
             time: candle.time as UTCTimestamp,
             value: candle.volume,
             color:
-              candle.close >= candle.open ? "rgba(22, 163, 74, 0.55)" : "rgba(220, 38, 38, 0.55)",
+              candle.close >= candle.open ? "rgba(53, 201, 139, 0.46)" : "rgba(240, 93, 103, 0.46)",
           })),
       );
     } else if (volumePaneRef.current) {
@@ -663,7 +663,7 @@ export function PriceChart({
         macdHistogramRef.current.update({
           time: histogramPoint.time as UTCTimestamp,
           value: histogramPoint.value,
-          color: histogramPoint.value >= 0 ? "#16a34a" : "#dc2626",
+          color: histogramPoint.value >= 0 ? "#35c98b" : "#f05d67",
         });
       }
     }
@@ -671,7 +671,7 @@ export function PriceChart({
       volumeRef.current.update({
         time,
         value: last.volume,
-        color: last.close >= last.open ? "rgba(22, 163, 74, 0.55)" : "rgba(220, 38, 38, 0.55)",
+        color: last.close >= last.open ? "rgba(53, 201, 139, 0.46)" : "rgba(240, 93, 103, 0.46)",
       });
     }
   }, [candles, interval, quote, symbol]);
@@ -707,7 +707,7 @@ export function PriceChart({
       const side = position.side as Side;
       return series.createPriceLine({
         price: Number(position.open_price),
-        color: side === "buy" ? "#16a34a" : "#dc2626",
+        color: side === "buy" ? "#35c98b" : "#f05d67",
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
@@ -762,10 +762,10 @@ export function PriceChart({
   const change = display ? display.close - display.open : 0;
   const changePct = display && display.open !== 0 ? (change / display.open) * 100 : 0;
   const control = (active: boolean) =>
-    `rounded px-1.5 py-1 text-[9px] font-semibold shadow-sm ring-1 transition-colors ${
+    `grid h-7 min-w-7 place-items-center rounded border px-1.5 text-[9px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
       active
-        ? "bg-slate-800 text-white ring-slate-800"
-        : "bg-white/85 text-slate-600 ring-slate-200 hover:bg-white"
+        ? "border-primary/45 bg-primary/15 text-primary"
+        : "border-border bg-card/90 text-muted-foreground hover:bg-accent hover:text-foreground"
     }`;
 
   return (
@@ -779,17 +779,21 @@ export function PriceChart({
       <div className={expanded ? "relative min-h-0 flex-1" : "relative"}>
         <div
           ref={containerRef}
-          className={expanded ? "h-full w-full" : "h-[420px] w-full sm:h-[480px]"}
+          className={
+            expanded
+              ? "h-full w-full"
+              : "h-[52dvh] min-h-[360px] w-full sm:h-[580px] xl:h-[calc(100dvh-11rem)] xl:min-h-[560px]"
+          }
         />
-        <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-7.5rem)] rounded bg-white/80 px-2 py-1 text-[10px] leading-tight shadow-sm ring-1 ring-slate-200 backdrop-blur">
+        <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-14rem)] rounded border border-border bg-card/85 px-2 py-1.5 text-[10px] leading-tight backdrop-blur">
           {display ? (
             <>
-              <div className="flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-slate-600">
+              <div className="flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-foreground/80">
                 <span>O {fmt(symbol, display.open)}</span>
                 <span>H {fmt(symbol, display.high)}</span>
                 <span>L {fmt(symbol, display.low)}</span>
                 <span>C {fmt(symbol, display.close)}</span>
-                <span className={change >= 0 ? "text-emerald-600" : "text-red-600"}>
+                <span className={change >= 0 ? "text-positive" : "text-negative"}>
                   {change >= 0 ? "+" : ""}
                   {changePct.toFixed(2)}%
                 </span>
@@ -797,7 +801,7 @@ export function PriceChart({
                   <span>Vol {compactVolume.format(display.volume)}</span>
                 ) : null}
               </div>
-              <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-[9px] text-slate-500">
+              <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-[9px] text-muted-foreground">
                 {display.sma != null ? <span>SMA {fmt(symbol, display.sma)}</span> : null}
                 {display.ema != null ? <span>EMA {fmt(symbol, display.ema)}</span> : null}
                 {display.rsi != null ? <span>RSI {display.rsi.toFixed(1)}</span> : null}
@@ -807,7 +811,7 @@ export function PriceChart({
               </div>
             </>
           ) : (
-            <span className="text-slate-500">Loading candles…</span>
+            <span className="text-muted-foreground">Loading candles…</span>
           )}
         </div>
         <div className="absolute right-2 top-2 z-10 flex gap-1">
@@ -866,7 +870,7 @@ export function PriceChart({
         {hasOlder && onLoadOlder ? (
           <button
             type="button"
-            className="absolute bottom-2 left-2 z-10 rounded bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-white disabled:cursor-wait disabled:opacity-60"
+            className="absolute bottom-2 left-2 z-10 rounded border border-border bg-card/90 px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground backdrop-blur hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-60"
             disabled={isLoadingOlder}
             onClick={onLoadOlder}
           >

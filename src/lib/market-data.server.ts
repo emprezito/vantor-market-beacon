@@ -31,9 +31,6 @@ const fxRateCache = new Map<string, { rate: number; fetchedAt: number }>();
 const quoteRetryAfter = new Map<string, number>();
 const candleRetryAfter = new Map<string, number>();
 const fxRateRetryAfter = new Map<string, number>();
-const inFlightQuoteBatches = new Map<string, Promise<QuoteMap>>();
-const inFlightCandles = new Map<string, Promise<MarketCandles>>();
-const inFlightFxRates = new Map<string, Promise<number>>();
 
 function quoteTtlMs(): number {
   const raw = Number(process.env["MERIDIAN_QUOTE_TTL_MS"] ?? process.env["MARKET_QUOTE_TTL_MS"]);
@@ -137,14 +134,8 @@ export async function loadQuotes(
   }
 
   if (missing.length > 0) {
-    const key = [...missing].sort().join(",");
-    let pending = inFlightQuoteBatches.get(key);
-    if (!pending) {
-      pending = fetchQuoteBatch(missing).finally(() => inFlightQuoteBatches.delete(key));
-      inFlightQuoteBatches.set(key, pending);
-    }
     try {
-      Object.assign(result, await pending);
+      Object.assign(result, await fetchQuoteBatch(missing));
     } catch (error) {
       const nextRetry = Date.now() + retryMs(error);
       for (const symbol of missing) quoteRetryAfter.set(symbol, nextRetry);
@@ -262,23 +253,17 @@ export async function loadCandles(
       : fallbackCandles(symbol, safeInterval, safePoints, end);
   }
 
-  const existing = inFlightCandles.get(cacheKey);
-  if (existing) return existing;
-  const request = fetchLiveCandles(symbol, safeInterval, safePoints, end)
-    .then((series) => {
-      candleRetryAfter.delete(cacheKey);
-      candleCache.set(cacheKey, { series, fetchedAt: Date.now() });
-      return series;
-    })
-    .catch((error) => {
-      candleRetryAfter.set(cacheKey, Date.now() + retryMs(error));
-      return cached
-        ? { ...cached.series, source: "cached" as FeedSource }
-        : fallbackCandles(symbol, safeInterval, safePoints, end);
-    })
-    .finally(() => inFlightCandles.delete(cacheKey));
-  inFlightCandles.set(cacheKey, request);
-  return request;
+  try {
+    const series = await fetchLiveCandles(symbol, safeInterval, safePoints, end);
+    candleRetryAfter.delete(cacheKey);
+    candleCache.set(cacheKey, { series, fetchedAt: Date.now() });
+    return series;
+  } catch (error) {
+    candleRetryAfter.set(cacheKey, Date.now() + retryMs(error));
+    return cached
+      ? { ...cached.series, source: "cached" as FeedSource }
+      : fallbackCandles(symbol, safeInterval, safePoints, end);
+  }
 }
 
 export async function loadProviderRate(pair: string): Promise<number> {
@@ -292,9 +277,7 @@ export async function loadProviderRate(pair: string): Promise<number> {
     throw new Error(`Market rate unavailable for ${pair}`);
   }
 
-  const existing = inFlightFxRates.get(symbol);
-  if (existing) return existing;
-  const request = (async () => {
+  try {
     await loadMeridianCatalog().catch(() => null);
     const provider =
       (await meridianProviderSymbols([symbol]).catch(() => new Map())).get(symbol) ?? symbol;
@@ -305,15 +288,11 @@ export async function loadProviderRate(pair: string): Promise<number> {
     fxRateRetryAfter.delete(symbol);
     fxRateCache.set(symbol, { rate, fetchedAt: Date.now() });
     return rate;
-  })()
-    .catch((error) => {
-      fxRateRetryAfter.set(symbol, Date.now() + retryMs(error));
-      if (cached) return cached.rate;
-      throw error;
-    })
-    .finally(() => inFlightFxRates.delete(symbol));
-  inFlightFxRates.set(symbol, request);
-  return request;
+  } catch (error) {
+    fxRateRetryAfter.set(symbol, Date.now() + retryMs(error));
+    if (cached) return cached.rate;
+    throw error;
+  }
 }
 
 export function resetMarketDataCache(): void {
@@ -323,8 +302,5 @@ export function resetMarketDataCache(): void {
   quoteRetryAfter.clear();
   candleRetryAfter.clear();
   fxRateRetryAfter.clear();
-  inFlightQuoteBatches.clear();
-  inFlightCandles.clear();
-  inFlightFxRates.clear();
   resetMeridianCache();
 }

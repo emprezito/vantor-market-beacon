@@ -42,7 +42,6 @@ const USD_PER_CURRENCY: Record<string, number> = {
 };
 
 let catalogCache: CatalogSnapshot | null = null;
-let catalogPending: Promise<CatalogSnapshot> | null = null;
 let catalogRetryAfter = 0;
 let catalogFailure: MeridianError | null = null;
 
@@ -296,28 +295,22 @@ export async function loadMeridianCatalog(): Promise<CatalogSnapshot> {
     return catalogCache;
   }
   if (catalogFailure && now < catalogRetryAfter) throw catalogFailure;
-  if (catalogPending) return catalogPending;
-  catalogPending = fetchCatalog()
-    .then((snapshot) => {
-      catalogCache = snapshot;
-      catalogFailure = null;
-      catalogRetryAfter = 0;
-      return snapshot;
-    })
-    .catch((error) => {
-      catalogFailure =
-        error instanceof MeridianError ? error : new MeridianError("Meridian is unavailable", 503);
-      catalogRetryAfter = Date.now() + (catalogFailure.retryAfterMs ?? CATALOG_FAILURE_COOLDOWN_MS);
-      if (catalogCache) {
-        registerMarketInstruments(catalogCache.instruments);
-        return catalogCache;
-      }
-      throw catalogFailure;
-    })
-    .finally(() => {
-      catalogPending = null;
-    });
-  return catalogPending;
+  try {
+    const snapshot = await fetchCatalog();
+    catalogCache = snapshot;
+    catalogFailure = null;
+    catalogRetryAfter = 0;
+    return snapshot;
+  } catch (error) {
+    catalogFailure =
+      error instanceof MeridianError ? error : new MeridianError("Meridian is unavailable", 503);
+    catalogRetryAfter = Date.now() + (catalogFailure.retryAfterMs ?? CATALOG_FAILURE_COOLDOWN_MS);
+    if (catalogCache) {
+      registerMarketInstruments(catalogCache.instruments);
+      return catalogCache;
+    }
+    throw catalogFailure;
+  }
 }
 
 export async function meridianProviderSymbols(symbols: string[]): Promise<Map<string, string>> {
@@ -374,7 +367,6 @@ export async function requestMeridianWsToken(): Promise<MeridianWsToken> {
 
 export function resetMeridianCache(): void {
   catalogCache = null;
-  catalogPending = null;
   catalogFailure = null;
   catalogRetryAfter = 0;
   registerMarketInstruments([]);

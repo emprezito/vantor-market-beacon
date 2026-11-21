@@ -24,10 +24,10 @@ export type MarkerClosedPosition = {
   pnl?: number | null;
 };
 
-const BUY_COLOR = "#16a34a";
-const SELL_COLOR = "#dc2626";
-const PENDING_COLOR = "#d97706";
-const CLOSE_COLOR = "#64748b";
+const BUY_COLOR = "#35c98b";
+const SELL_COLOR = "#f05d67";
+const PENDING_COLOR = "#c9a75c";
+const CLOSE_COLOR = "#7f8a9b";
 
 function markerTime(
   value: string | null | undefined,
