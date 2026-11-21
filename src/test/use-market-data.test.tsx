@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useMarketCandles, useMarketQuotes } from "@/hooks/use-market-data";
@@ -55,7 +55,7 @@ beforeEach(() => {
 });
 
 describe("useMarketCandles history", () => {
-  it("loads and merges older candle pages without replacing the latest page", async () => {
+  it("automatically loads and merges every older candle page", async () => {
     const latest: MarketCandle[] = [
       { time: 300, open: 3, high: 4, low: 2, close: 3.5 },
       { time: 400, open: 4, high: 5, low: 3, close: 4.5 },
@@ -64,14 +64,16 @@ describe("useMarketCandles history", () => {
       { time: 100, open: 1, high: 2, low: 0.5, close: 1.5 },
       { time: 200, open: 2, high: 3, low: 1, close: 2.5 },
     ];
-    mocks.candlesFn.mockImplementation(async ({ data }: { data: { before?: number | null } }) => ({
-      symbol: "EURUSD",
-      interval: "5min",
-      candles: data.before == null ? latest : older,
-      source: "live",
-      feed: "meridian",
-      fetchedAt: 1_800_000_000_000,
-    }));
+    mocks.candlesFn.mockImplementation(
+      async ({ data }: { data: { before?: number | null } }) => ({
+        symbol: "EURUSD",
+        interval: "5min",
+        candles: data.before == null ? latest : data.before > 100_000 ? older : [],
+        source: "live",
+        feed: "meridian",
+        fetchedAt: 1_800_000_000_000,
+      }),
+    );
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
     });
@@ -83,18 +85,34 @@ describe("useMarketCandles history", () => {
       { wrapper },
     );
 
-    await waitFor(() => expect(result.current.candles).toEqual(latest));
-    act(() => result.current.loadOlder());
     await waitFor(() =>
       expect(result.current.candles.map((candle) => candle.time)).toEqual([100, 200, 300, 400]),
     );
-    expect(mocks.candlesFn).toHaveBeenLastCalledWith({
+    await waitFor(() => expect(result.current.hasOlder).toBe(false));
+    expect(mocks.candlesFn).toHaveBeenNthCalledWith(1, {
+      data: {
+        symbol: "EURUSD",
+        interval: "5min",
+        points: 20,
+        accountId: "account-1",
+      },
+    });
+    expect(mocks.candlesFn).toHaveBeenNthCalledWith(2, {
       data: {
         symbol: "EURUSD",
         interval: "5min",
         points: 20,
         accountId: "account-1",
         before: 299_999,
+      },
+    });
+    expect(mocks.candlesFn).toHaveBeenNthCalledWith(3, {
+      data: {
+        symbol: "EURUSD",
+        interval: "5min",
+        points: 20,
+        accountId: "account-1",
+        before: 99_999,
       },
     });
   });

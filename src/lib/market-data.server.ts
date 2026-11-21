@@ -11,7 +11,6 @@ import { findInstrument } from "./market";
 import {
   isChartInterval,
   isInstrument,
-  intervalMs,
   syntheticCandles,
   syntheticQuote,
   type ChartInterval,
@@ -194,10 +193,8 @@ async function fetchLiveCandles(
 ): Promise<MarketCandles> {
   const provider = (await meridianProviderSymbols([symbol])).get(symbol);
   if (!provider) throw new Error(`No Meridian symbol mapping for ${symbol}`);
-  const minimumWindowMs = 7 * 24 * 60 * 60_000;
-  const historyWindowMs = Math.max(minimumWindowMs, intervalMs(interval) * points * 2);
   const payload = await fetchMeridianCandles(provider, MERIDIAN_TIMEFRAMES[interval], points, {
-    start: new Date(end - historyWindowMs).toISOString(),
+    start: new Date(0).toISOString(),
     end: new Date(end).toISOString(),
   });
   const byTime = new Map<number, MarketCandle>();
@@ -206,7 +203,6 @@ async function fetchLiveCandles(
     if (candle) byTime.set(candle.time, candle);
   }
   const candles = Array.from(byTime.values()).sort((left, right) => left.time - right.time);
-  if (candles.length === 0) throw new Error(`No candles returned for ${symbol}`);
   return {
     symbol,
     interval,
@@ -244,7 +240,7 @@ export async function loadCandles(
     .then(() => true)
     .catch(() => false);
   const safeInterval = isChartInterval(interval) ? interval : "1min";
-  const safePoints = Math.min(500, Math.max(20, Math.round(points)));
+  const safePoints = Math.min(5_000, Math.max(20, Math.round(points)));
   const before =
     typeof options.before === "number" && Number.isFinite(options.before) && options.before > 0
       ? options.before

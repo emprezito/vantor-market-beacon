@@ -191,14 +191,8 @@ describe("Meridian server client", () => {
     );
     expect(intradayRequest?.searchParams.get("limit")).toBe("20");
     expect(dailyRequest?.searchParams.get("limit")).toBe("500");
-    expect(
-      Date.parse(intradayRequest!.searchParams.get("end")!) -
-        Date.parse(intradayRequest!.searchParams.get("start")!),
-    ).toBe(7 * 24 * 60 * 60_000);
-    expect(
-      Date.parse(dailyRequest!.searchParams.get("end")!) -
-        Date.parse(dailyRequest!.searchParams.get("start")!),
-    ).toBe(1_000 * 24 * 60 * 60_000);
+    expect(intradayRequest?.searchParams.get("start")).toBe(new Date(0).toISOString());
+    expect(dailyRequest?.searchParams.get("start")).toBe(new Date(0).toISOString());
   });
 
   it("requests a short-lived WebSocket token server-side", async () => {

@@ -90,7 +90,7 @@ export const getMarketCandles = createServerFn({ method: "POST" })
         throw new Error("Unknown instrument");
       if (!isChartInterval(input.interval)) throw new Error("Invalid chart interval");
       const points = input.points == null ? 180 : Math.round(input.points);
-      if (!Number.isFinite(points) || points < 20 || points > 500)
+      if (!Number.isFinite(points) || points < 20 || points > 5_000)
         throw new Error("Invalid candle count");
       const before = input.before == null ? null : Number(input.before);
       if (before != null && (!Number.isFinite(before) || before <= 0))
