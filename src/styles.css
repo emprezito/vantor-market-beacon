@@ -190,6 +190,10 @@
   scrollbar-width: thin;
 }
 
+.vantor-terminal body {
+  overflow-x: hidden;
+}
+
 .vantor-terminal ::selection {
   background: oklch(0.78 0.105 82 / 0.35);
   color: var(--color-foreground);

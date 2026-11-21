@@ -99,7 +99,7 @@ export function AccountPicker({
       {accounts.map((account) => (
         <option key={account.id} value={account.id} className="bg-popover text-popover-foreground">
           {compact
-            ? `${account.nickname} · #${account.login} · ${account.server}`
+            ? `${account.nickname} · #${account.login}`
             : `${account.nickname} · #${account.login} · ${account.server} · ${account.currency}`}
         </option>
       ))}
@@ -279,7 +279,7 @@ export function MobileHeader({
           vantor
         </Link>
         {!partner && (
-          <div className="ml-auto min-w-0 max-w-[55vw]">
+          <div className="ml-auto min-w-0 max-w-[46vw]">
             <AccountPicker
               compact
               accounts={accounts}

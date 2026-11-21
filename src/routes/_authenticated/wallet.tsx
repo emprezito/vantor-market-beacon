@@ -100,7 +100,37 @@ function Wallet() {
       </section>
       <section className="rounded-xl border">
         <h2 className="border-b px-4 py-3 font-bold">Transactions</h2>
-        <div className="overflow-x-auto">
+        <div className="divide-y divide-border sm:hidden">
+          {(data?.transactions ?? []).length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              No transactions yet
+            </p>
+          ) : null}
+          {(data?.transactions ?? []).map((transaction) => (
+            <article
+              key={transaction.id}
+              className="flex items-center justify-between gap-3 px-4 py-3"
+            >
+              <div className="min-w-0">
+                <div className="text-sm capitalize text-foreground">
+                  {transaction.kind === "bonus" || transaction.kind === "initial"
+                    ? "Starting balance"
+                    : transaction.kind}
+                </div>
+                <div className="truncate text-[10px] text-muted-foreground">
+                  {new Date(transaction.created_at).toLocaleString()}
+                </div>
+              </div>
+              <div
+                className={`shrink-0 font-mono text-sm font-semibold ${transaction.kind === "withdraw" ? "text-negative" : "text-positive"}`}
+              >
+                {transaction.kind === "withdraw" ? "-" : "+"}
+                {formatMoney(Number(transaction.amount), currency)}
+              </div>
+            </article>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto sm:block">
           <table className="w-full min-w-[420px] text-sm">
             <tbody>
               {(data?.transactions ?? []).length === 0 && (

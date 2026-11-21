@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Radio, Star } from "lucide-react";
+import { ChevronDown, Radio, Search, Star } from "lucide-react";
 import { fmt, getInstrument } from "@/lib/market";
 import {
   CHART_INDICATOR_KEYS,
@@ -30,6 +30,17 @@ import { useWatchlist } from "@/hooks/use-watchlist";
 import { formatMoney } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
 import { PriceChart } from "@/components/price-chart";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+
+const MOBILE_INTERVALS = CHART_INTERVALS.slice(0, 5);
+const EXTENDED_INTERVALS = CHART_INTERVALS.slice(5);
 
 export const Route = createFileRoute("/_authenticated/trade")({
   head: () => ({
@@ -60,6 +71,9 @@ function Trade() {
   const [tp, setTp] = useState("");
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [limitPrice, setLimitPrice] = useState("");
+  const [instrumentQuery, setInstrumentQuery] = useState("");
+  const [mobileOrderOpen, setMobileOrderOpen] = useState(false);
+  const [mobileOrderSide, setMobileOrderSide] = useState<Side>("buy");
   const feedSymbols = useMemo(
     () => [...watchSymbols, symbol, ...(acc?.open ?? []).map((position) => position.symbol)],
     [watchSymbols, symbol, acc?.open],
@@ -112,6 +126,7 @@ function Trade() {
       }
       qc.invalidateQueries({ queryKey: ["account"] });
       qc.invalidateQueries({ queryKey: ["my-accounts"] });
+      setMobileOrderOpen(false);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -184,12 +199,22 @@ function Trade() {
   const money = (n: number) => formatMoney(n, currency);
   const input =
     "mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground/60 focus:border-primary focus:ring-1 focus:ring-primary";
+  const mobileInput =
+    "mt-1.5 h-12 w-full rounded-md border border-input bg-background px-3 font-mono text-base text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground/60 focus:border-primary focus:ring-1 focus:ring-primary";
   const limitValid =
     orderType === "market" ||
     (limitPrice.trim() !== "" && Number.isFinite(Number(limitPrice)) && Number(limitPrice) > 0);
   const watch = watchSymbols
     .map((s) => instruments.find((i) => i.symbol === s))
     .filter((i): i is (typeof instruments)[number] => i != null);
+  const filteredInstruments = instruments.filter((instrument) => {
+    const query = instrumentQuery.trim().toLowerCase();
+    return (
+      !query ||
+      instrument.symbol.toLowerCase().includes(query) ||
+      instrument.name.toLowerCase().includes(query)
+    );
+  });
   const chooseType = (next: "market" | "limit") => {
     setOrderType(next);
     if (next === "limit" && limitPrice.trim() === "") setLimitPrice(fmt(symbol, q.mid));
@@ -231,10 +256,10 @@ function Trade() {
   }
 
   return (
-    <main className="min-h-[calc(100dvh-3.5rem)] bg-background xl:min-h-screen">
+    <main className="min-h-[calc(100dvh-3.5rem)] overflow-x-clip bg-background pb-20 xl:min-h-screen xl:pb-0">
       <header className="border-b border-border bg-card">
-        <div className="flex min-h-14 flex-wrap items-center gap-x-6 gap-y-2 px-3 py-2 sm:px-4">
-          <div className="mr-auto min-w-0">
+        <div className="grid min-h-14 gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4 sm:py-2">
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-sm font-bold tracking-tight text-foreground">Market workspace</h1>
               <span
@@ -253,16 +278,19 @@ function Trade() {
               {activeAccount.nickname} · #{activeAccount.login} · {activeAccount.server}
             </p>
           </div>
-          <div className="flex max-w-full gap-5 overflow-x-auto pb-0.5 sm:gap-7">
+          <div className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-4 sm:border-0 sm:bg-transparent">
             {[
               ["Balance", balance],
               ["Equity", equity],
               ["Margin", used],
               ["Free margin", equity - used],
             ].map(([label, value]) => (
-              <div key={label as string} className="min-w-max">
+              <div
+                key={label as string}
+                className="min-w-0 bg-background px-3 py-2 sm:bg-transparent sm:px-3 sm:py-0"
+              >
                 <div className="text-[10px] font-medium text-muted-foreground">{label}</div>
-                <div className="font-mono text-xs font-semibold text-foreground sm:text-sm">
+                <div className="break-all font-mono text-[11px] font-semibold text-foreground sm:text-sm">
                   {money(value as number)}
                 </div>
               </div>
@@ -278,7 +306,7 @@ function Trade() {
       ) : null}
 
       <div className="grid bg-border xl:min-h-[calc(100dvh-3.5rem)] xl:grid-cols-[220px_minmax(0,1fr)_280px] xl:gap-px">
-        <aside className="order-3 border-t border-border bg-card xl:order-1 xl:border-t-0">
+        <aside className="order-3 hidden border-t border-border bg-card xl:order-1 xl:block xl:border-t-0">
           <div className="border-b border-border p-3">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-xs font-semibold text-foreground">Instruments</h2>
@@ -390,11 +418,109 @@ function Trade() {
                     ? `Remove ${symbol} from watchlist`
                     : `Add ${symbol} to watchlist`
                 }
-                className="text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:h-8 sm:w-8"
               >
                 <Star className="h-4 w-4" fill={isFavourite(symbol) ? "currentColor" : "none"} />
               </button>
-              <div className="min-w-0">
+              <Sheet>
+                <SheetTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex min-w-0 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:hidden"
+                  >
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-base font-bold tracking-tight text-foreground">
+                          {symbol}
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                      </span>
+                      <span className="block truncate text-[9px] text-muted-foreground">
+                        {getInstrument(symbol).name}
+                      </span>
+                      <span className="block font-mono text-base font-semibold text-foreground">
+                        {fmt(symbol, q.mid)}
+                      </span>
+                      <span className="block font-mono text-[9px] text-muted-foreground">
+                        B {fmt(symbol, q.bid)} / A {fmt(symbol, q.ask)}
+                      </span>
+                    </span>
+                  </button>
+                </SheetTrigger>
+                <SheetContent
+                  side="bottom"
+                  className="max-h-[82dvh] overflow-hidden rounded-t-xl border-border bg-card p-0 pb-[env(safe-area-inset-bottom)] sm:hidden"
+                >
+                  <div className="border-b border-border px-4 pb-3 pt-4">
+                    <SheetTitle className="text-base">Choose market</SheetTitle>
+                    <SheetDescription className="text-xs">
+                      Search instruments or select from your watchlist.
+                    </SheetDescription>
+                    <label className="relative mt-3 block">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="search"
+                        value={instrumentQuery}
+                        onChange={(event) => setInstrumentQuery(event.target.value)}
+                        placeholder="Search symbols"
+                        className="h-11 w-full rounded-md border border-input bg-background pl-10 pr-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                      />
+                    </label>
+                  </div>
+                  <div className="max-h-[62dvh] overflow-y-auto overscroll-contain">
+                    {filteredInstruments.map((instrument) => {
+                      const marketQuote = quoteFor(quotes, instrument.symbol, now);
+                      return (
+                        <div
+                          key={instrument.symbol}
+                          className="flex min-h-14 items-center border-b border-border/70 px-4"
+                        >
+                          <SheetClose asChild>
+                            <button
+                              type="button"
+                              onClick={() => selectSymbol(instrument.symbol)}
+                              className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2 text-left"
+                            >
+                              <span className="min-w-0">
+                                <span className="block text-sm font-semibold text-foreground">
+                                  {instrument.symbol}
+                                </span>
+                                <span className="block truncate text-[10px] text-muted-foreground">
+                                  {instrument.name}
+                                </span>
+                              </span>
+                              <span className="shrink-0 text-right font-mono text-xs">
+                                <span className="block text-foreground">
+                                  {fmt(instrument.symbol, marketQuote.bid)}
+                                </span>
+                                <span className="block text-[9px] text-muted-foreground">
+                                  {fmt(instrument.symbol, marketQuote.ask)}
+                                </span>
+                              </span>
+                            </button>
+                          </SheetClose>
+                          <button
+                            type="button"
+                            onClick={() => toggle(instrument.symbol)}
+                            aria-label={
+                              isFavourite(instrument.symbol)
+                                ? `Remove ${instrument.symbol} from watchlist`
+                                : `Add ${instrument.symbol} to watchlist`
+                            }
+                            className="ml-3 grid h-10 w-10 shrink-0 place-items-center rounded-md text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          >
+                            <Star
+                              className="h-4 w-4"
+                              fill={isFavourite(instrument.symbol) ? "currentColor" : "none"}
+                            />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </SheetContent>
+              </Sheet>
+              <div className="hidden min-w-0 sm:block">
                 <div className="flex items-baseline gap-2">
                   <h2 className="text-base font-bold tracking-tight text-foreground">{symbol}</h2>
                   <span className="truncate text-[10px] text-muted-foreground">
@@ -411,7 +537,35 @@ function Trade() {
                 </div>
               </div>
             </div>
-            <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-md border border-border bg-background p-1">
+            <div className="flex items-center gap-1 rounded-md border border-border bg-background p-1 sm:hidden">
+              {MOBILE_INTERVALS.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  aria-pressed={timeframe === item.value}
+                  onClick={() => setTimeframe(item.value)}
+                  className={`h-8 min-w-8 rounded px-1.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${timeframe === item.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <select
+                aria-label="More timeframes"
+                value={EXTENDED_INTERVALS.some((item) => item.value === timeframe) ? timeframe : ""}
+                onChange={(event) => {
+                  if (event.target.value) setTimeframe(event.target.value as ChartInterval);
+                }}
+                className={`h-8 rounded border-0 bg-transparent px-1 text-[10px] font-semibold outline-none ${EXTENDED_INTERVALS.some((item) => item.value === timeframe) ? "text-primary" : "text-muted-foreground"}`}
+              >
+                <option value="">More</option>
+                {EXTENDED_INTERVALS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="hidden max-w-full items-center gap-1 overflow-x-auto rounded-md border border-border bg-background p-1 sm:flex">
               {CHART_INTERVALS.map((item) => (
                 <button
                   key={item.value}
@@ -433,7 +587,7 @@ function Trade() {
                 type="button"
                 aria-pressed={indicators[key]}
                 onClick={() => setIndicators((current) => ({ ...current, [key]: !current[key] }))}
-                className={`h-7 rounded border px-2 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                className={`h-9 rounded border px-2.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:h-7 sm:px-2 ${
                   indicators[key]
                     ? "border-primary/45 bg-primary/10 text-primary"
                     : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
@@ -461,7 +615,7 @@ function Trade() {
           />
         </section>
 
-        <section className="order-2 border-y border-border bg-card xl:order-3 xl:border-y-0">
+        <section className="order-2 hidden border-y border-border bg-card xl:order-3 xl:block xl:border-y-0">
           <div className="border-b border-border px-4 py-3">
             <div className="flex items-center justify-between gap-2">
               <div>
@@ -610,6 +764,187 @@ function Trade() {
             </div>
           </div>
         </section>
+      </div>
+
+      <Sheet open={mobileOrderOpen} onOpenChange={setMobileOrderOpen}>
+        <SheetContent
+          side="bottom"
+          className="max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-xl border-border bg-card px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 xl:hidden"
+        >
+          <SheetTitle className="text-base">Place {symbol} order</SheetTitle>
+          <SheetDescription className="text-xs">
+            Review direction, risk controls and margin before submitting.
+          </SheetDescription>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {(["sell", "buy"] as Side[]).map((side) => (
+              <button
+                key={side}
+                type="button"
+                aria-pressed={mobileOrderSide === side}
+                onClick={() => setMobileOrderSide(side)}
+                className={`h-12 rounded-md border font-semibold capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                  mobileOrderSide === side
+                    ? side === "buy"
+                      ? "border-positive bg-positive/15 text-positive"
+                      : "border-negative bg-negative/15 text-negative"
+                    : "border-border bg-background text-muted-foreground"
+                }`}
+              >
+                {side}
+                <span className="ml-2 font-mono text-xs">
+                  {fmt(symbol, side === "buy" ? q.ask : q.bid)}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-1 rounded-md border border-border bg-background p-1">
+            {(["market", "limit"] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                aria-pressed={orderType === type}
+                onClick={() => chooseType(type)}
+                className={`h-10 rounded capitalize transition-colors ${orderType === type ? "bg-accent font-semibold text-foreground" : "text-muted-foreground"}`}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <label className="block text-xs font-medium text-muted-foreground">
+              Volume (lots)
+              <input
+                className={mobileInput}
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0.01"
+                value={lots}
+                onChange={(event) => setLots(event.target.value)}
+              />
+            </label>
+            {orderType === "limit" ? (
+              <label className="block text-xs font-medium text-muted-foreground">
+                Entry price
+                <input
+                  className={mobileInput}
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  min="0"
+                  value={limitPrice}
+                  onChange={(event) => setLimitPrice(event.target.value)}
+                  placeholder={fmt(symbol, q.mid)}
+                />
+              </label>
+            ) : null}
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-xs font-medium text-muted-foreground">
+                Stop loss
+                <input
+                  className={mobileInput}
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  value={sl}
+                  onChange={(event) => setSl(event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+              <label className="block text-xs font-medium text-muted-foreground">
+                Take profit
+                <input
+                  className={mobileInput}
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  value={tp}
+                  onChange={(event) => setTp(event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between border-y border-border py-3 text-xs">
+            <span className="text-muted-foreground">Required margin · 1:{leverage}</span>
+            <span className="font-mono font-semibold text-foreground">
+              {money(
+                calcMargin(
+                  symbol,
+                  Number(lots) || 0,
+                  orderType === "limit" ? Number(limitPrice) || q.mid : q.mid,
+                  leverage,
+                ) * fxRate,
+              )}
+            </span>
+          </div>
+
+          {marketClosed || feedBlocked || fallbackBlocked ? (
+            <p className="mt-3 rounded-md border border-warning/25 bg-warning/10 p-2 text-xs leading-relaxed text-warning">
+              {marketClosed
+                ? "This market is closed. Trading resumes when the next session opens."
+                : feedBlocked
+                  ? "Meridian pricing is stale. New orders are paused."
+                  : "Live pricing is unavailable. New orders are paused."}
+            </p>
+          ) : null}
+
+          <Button
+            variant={mobileOrderSide === "buy" ? "positive" : "negative"}
+            disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
+            onClick={() => place.mutate(mobileOrderSide)}
+            className="mt-4 h-12 w-full"
+          >
+            {place.isPending
+              ? "Submitting…"
+              : `${mobileOrderSide === "buy" ? "Buy" : "Sell"} ${symbol}`}
+            <span className="font-mono text-xs">
+              {fmt(
+                symbol,
+                orderType === "limit"
+                  ? Number(limitPrice) || (mobileOrderSide === "buy" ? q.ask : q.bid)
+                  : mobileOrderSide === "buy"
+                    ? q.ask
+                    : q.bid,
+              )}
+            </span>
+          </Button>
+        </SheetContent>
+      </Sheet>
+
+      <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-2 gap-px border-y border-border bg-border p-px shadow-[0_-8px_24px_rgba(0,0,0,0.28)] xl:hidden">
+        <button
+          type="button"
+          disabled={readOnly}
+          onClick={() => {
+            setMobileOrderSide("sell");
+            setMobileOrderOpen(true);
+          }}
+          className="flex min-h-14 items-center justify-between bg-card px-4 text-left disabled:opacity-50"
+        >
+          <span className="text-xs font-semibold text-negative">Sell</span>
+          <span className="font-mono text-sm font-semibold text-foreground">
+            {fmt(symbol, q.bid)}
+          </span>
+        </button>
+        <button
+          type="button"
+          disabled={readOnly}
+          onClick={() => {
+            setMobileOrderSide("buy");
+            setMobileOrderOpen(true);
+          }}
+          className="flex min-h-14 items-center justify-between bg-card px-4 text-left disabled:opacity-50"
+        >
+          <span className="text-xs font-semibold text-positive">Buy</span>
+          <span className="font-mono text-sm font-semibold text-foreground">
+            {fmt(symbol, q.ask)}
+          </span>
+        </button>
       </div>
     </main>
   );

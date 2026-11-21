@@ -60,7 +60,53 @@ function History() {
           {formatMoney(total, currency)}
         </span>
       </p>
-      <div className="mt-4 overflow-x-auto rounded-xl border">
+      <div className="mt-4 overflow-hidden rounded-md border border-border bg-card sm:hidden">
+        {rows.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No closed trades yet
+          </p>
+        ) : null}
+        <div className="divide-y divide-border">
+          {rows.map((row) => (
+            <article key={row.id} className="space-y-3 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">{row.symbol}</span>
+                    <span
+                      className={`text-[10px] font-semibold ${row.side === "buy" ? "text-positive" : "text-negative"}`}
+                    >
+                      {row.side.toUpperCase()} {Number(row.lots).toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    {row.closed_at ? new Date(row.closed_at).toLocaleString() : "—"}
+                  </p>
+                </div>
+                <span
+                  className={`font-mono text-sm font-semibold ${Number(row.pnl) >= 0 ? "text-positive" : "text-negative"}`}
+                >
+                  {formatMoney(Number(row.pnl), currency)}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/40 p-2 text-[10px]">
+                <div>
+                  <span className="text-muted-foreground">Open</span>
+                  <span className="block font-mono">{fmt(row.symbol, Number(row.open_price))}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Close</span>
+                  <span className="block font-mono">
+                    {fmt(row.symbol, Number(row.close_price))}
+                  </span>
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{row.close_reason}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 hidden overflow-x-auto rounded-xl border sm:block">
         <table className="w-full min-w-[800px] text-sm">
           <thead className="text-left text-xs text-muted-foreground">
             <tr>

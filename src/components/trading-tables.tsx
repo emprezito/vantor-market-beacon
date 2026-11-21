@@ -27,7 +27,63 @@ export function PendingOrdersSection({
           {orders.length}
         </span>
       </div>
-      <div className="overflow-x-auto" aria-label="Pending orders table">
+      <div className="divide-y divide-border sm:hidden">
+        {orders.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">No pending orders</p>
+        ) : null}
+        {orders.map((order) => (
+          <article key={order.id} className="space-y-3 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-foreground">{order.symbol}</span>
+                  <span
+                    className={`text-[10px] font-semibold ${order.side === "buy" ? "text-positive" : "text-negative"}`}
+                  >
+                    {order.side.toUpperCase()} LIMIT
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  {new Date(order.created_at).toLocaleString()}
+                </p>
+              </div>
+              <span className="font-mono text-sm font-semibold">
+                {fmt(order.symbol, Number(order.limit_price))}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 rounded-md bg-muted/40 p-2 text-[10px]">
+              <div>
+                <span className="text-muted-foreground">Lots</span>
+                <span className="block font-mono text-foreground">
+                  {Number(order.lots).toFixed(2)}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Stop loss</span>
+                <span className="block font-mono text-foreground">
+                  {order.stop_loss ? fmt(order.symbol, Number(order.stop_loss)) : "—"}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Take profit</span>
+                <span className="block font-mono text-foreground">
+                  {order.take_profit ? fmt(order.symbol, Number(order.take_profit)) : "—"}
+                </span>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-10 w-full"
+              disabled={busy || readOnly}
+              onClick={() => onCancel(order.id)}
+            >
+              Cancel order
+            </Button>
+          </article>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto sm:block" aria-label="Pending orders table">
         <table className="w-full min-w-[760px] text-xs">
           <thead className="bg-muted/40 text-left text-[10px] font-medium text-muted-foreground">
             <tr>
@@ -130,7 +186,76 @@ export function OpenPositionsSection({
           </span>
         </div>
       </div>
-      <div className="overflow-x-auto" aria-label="Open positions table">
+      <div className="divide-y divide-border sm:hidden">
+        {positions.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">No open positions</p>
+        ) : null}
+        {positions.map((position) => {
+          const quote = quoteFor(quotes, position.symbol, now);
+          const current = closePriceFromQuote(position.side as Side, quote);
+          const pnl =
+            isFallbackQuote(quote) || isStaleFeedQuote(quote)
+              ? 0
+              : calcPnl(
+                  position.symbol,
+                  position.side as Side,
+                  Number(position.lots),
+                  Number(position.open_price),
+                  current,
+                ) * fxRate;
+          return (
+            <article key={position.id} className="space-y-3 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground">{position.symbol}</span>
+                    <span
+                      className={`text-[10px] font-semibold ${position.side === "buy" ? "text-positive" : "text-negative"}`}
+                    >
+                      {position.side.toUpperCase()} {Number(position.lots).toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                    {fmt(position.symbol, Number(position.open_price))} →{" "}
+                    {fmt(position.symbol, current)}
+                  </p>
+                </div>
+                <span
+                  className={`font-mono text-sm font-semibold ${pnl >= 0 ? "text-positive" : "text-negative"}`}
+                >
+                  {formatMoney(pnl, currency)}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/40 p-2 text-[10px]">
+                <div>
+                  <span className="text-muted-foreground">Stop loss</span>
+                  <span className="block font-mono text-foreground">
+                    {position.stop_loss ? fmt(position.symbol, Number(position.stop_loss)) : "—"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Take profit</span>
+                  <span className="block font-mono text-foreground">
+                    {position.take_profit
+                      ? fmt(position.symbol, Number(position.take_profit))
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-10 w-full"
+                disabled={busy || readOnly}
+                onClick={() => onClose(position.id)}
+              >
+                Close position
+              </Button>
+            </article>
+          );
+        })}
+      </div>
+      <div className="hidden overflow-x-auto sm:block" aria-label="Open positions table">
         <table className="w-full min-w-[900px] text-xs">
           <thead className="bg-muted/40 text-left text-[10px] text-muted-foreground">
             <tr>

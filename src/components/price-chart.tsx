@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Maximize2, Minimize2 } from "lucide-react";
+import { Camera, Maximize2, Minimize2, SlidersHorizontal } from "lucide-react";
 import {
   CandlestickSeries,
   ColorType,
@@ -185,7 +185,9 @@ export function PriceChart({
   const [timeZone, setTimeZone] = useState<TimeZoneMode>("utc");
   const [magnet, setMagnet] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileExpandButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     historyStateRef.current = { onLoadOlder, hasOlder, isLoadingOlder };
@@ -200,7 +202,10 @@ export function PriceChart({
       if (event.key === "Escape") setExpanded(false);
     };
     window.addEventListener("keydown", handleKeyDown);
-    expandButtonRef.current?.focus();
+    const visibleExpandButton = [expandButtonRef.current, mobileExpandButtonRef.current].find(
+      (button) => button && button.getClientRects().length > 0,
+    );
+    (visibleExpandButton ?? expandButtonRef.current ?? mobileExpandButtonRef.current)?.focus();
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
@@ -782,10 +787,10 @@ export function PriceChart({
           className={
             expanded
               ? "h-full w-full"
-              : "h-[52dvh] min-h-[360px] w-full sm:h-[580px] xl:h-[calc(100dvh-11rem)] xl:min-h-[560px]"
+              : "h-[clamp(320px,48dvh,440px)] w-full sm:h-[580px] xl:h-[calc(100dvh-11rem)] xl:min-h-[560px]"
           }
         />
-        <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-14rem)] rounded border border-border bg-card/85 px-2 py-1.5 text-[10px] leading-tight backdrop-blur">
+        <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-6.5rem)] rounded border border-border bg-card/85 px-2 py-1.5 text-[10px] leading-tight backdrop-blur sm:max-w-[calc(100%-14rem)]">
           {display ? (
             <>
               <div className="flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-foreground/80">
@@ -814,7 +819,7 @@ export function PriceChart({
             <span className="text-muted-foreground">Loading candles…</span>
           )}
         </div>
-        <div className="absolute right-2 top-2 z-10 flex gap-1">
+        <div className="absolute right-2 top-2 z-10 hidden gap-1 sm:flex">
           <button
             type="button"
             aria-label="Cycle price scale mode"
@@ -866,6 +871,67 @@ export function PriceChart({
           >
             {expanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
           </button>
+        </div>
+        <div className="absolute right-2 top-2 z-20 flex gap-1 sm:hidden">
+          <button
+            ref={mobileExpandButtonRef}
+            type="button"
+            aria-label={
+              expanded ? "Exit fullscreen chart on mobile" : "Expand chart to fullscreen on mobile"
+            }
+            className="grid h-9 w-9 place-items-center rounded-md border border-border bg-card/90 text-muted-foreground backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
+          <button
+            type="button"
+            aria-label="Open chart tools"
+            aria-expanded={mobileToolsOpen}
+            className="grid h-9 w-9 place-items-center rounded-md border border-border bg-card/90 text-muted-foreground backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            onClick={() => setMobileToolsOpen((value) => !value)}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+          </button>
+          {mobileToolsOpen ? (
+            <div className="absolute right-0 top-11 w-44 overflow-hidden rounded-md border border-border bg-popover text-xs shadow-xl">
+              <button
+                type="button"
+                onClick={cycleScale}
+                className="flex h-10 w-full items-center justify-between px-3 text-left hover:bg-accent"
+              >
+                Price scale <span className="font-mono text-primary">{scaleLabel}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setInvertScale((value) => !value)}
+                className="flex h-10 w-full items-center justify-between border-t border-border px-3 text-left hover:bg-accent"
+              >
+                Invert scale <span>{invertScale ? "On" : "Off"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimeZone((value) => (value === "utc" ? "local" : "utc"))}
+                className="flex h-10 w-full items-center justify-between border-t border-border px-3 text-left hover:bg-accent"
+              >
+                Timezone <span>{timeZone === "utc" ? "UTC" : "Local"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMagnet((value) => !value)}
+                className="flex h-10 w-full items-center justify-between border-t border-border px-3 text-left hover:bg-accent"
+              >
+                Magnet <span>{magnet ? "On" : "Off"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={downloadChart}
+                className="flex h-10 w-full items-center gap-2 border-t border-border px-3 text-left hover:bg-accent"
+              >
+                <Camera className="h-3.5 w-3.5" /> Save image
+              </button>
+            </div>
+          ) : null}
         </div>
         {hasOlder && onLoadOlder ? (
           <button
