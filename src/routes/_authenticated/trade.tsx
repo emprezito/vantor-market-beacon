@@ -29,6 +29,7 @@ import { useWatchlist } from "@/hooks/use-watchlist";
 import { formatMoney } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
 import { PriceChart } from "@/components/price-chart";
+import { PriceFlash } from "@/components/price-flash";
 import {
   Sheet,
   SheetClose,
@@ -79,7 +80,7 @@ function Trade() {
   const { candles, loadOlder, hasOlder, isLoadingOlder } = useMarketCandles(
     symbol,
     timeframe,
-    500,
+    55,
     activeAccount?.id ?? null,
   );
   const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
@@ -225,9 +226,12 @@ function Trade() {
             <h1 className="shrink-0 text-sm font-bold tracking-tight text-foreground sm:text-base">
               {symbol}
             </h1>
-            <span className="truncate font-mono text-base font-semibold text-foreground sm:text-lg">
+            <PriceFlash
+              value={q.mid}
+              className="truncate font-mono text-base font-semibold text-foreground sm:text-lg"
+            >
               {fmt(symbol, q.mid)}
-            </span>
+            </PriceFlash>
           </div>
           <Popover>
             <PopoverTrigger asChild>
@@ -351,7 +355,7 @@ function Trade() {
                     onClick={() => selectSymbol(instrument.symbol)}
                     className="font-mono text-[10px] text-foreground focus-visible:outline-none"
                   >
-                    {fmt(instrument.symbol, quote.bid)}
+                    <PriceFlash value={quote.bid}>{fmt(instrument.symbol, quote.bid)}</PriceFlash>
                   </button>
                   <div className="flex items-center gap-1.5">
                     <button
@@ -359,7 +363,7 @@ function Trade() {
                       onClick={() => selectSymbol(instrument.symbol)}
                       className="font-mono text-[10px] text-foreground focus-visible:outline-none"
                     >
-                      {fmt(instrument.symbol, quote.ask)}
+                      <PriceFlash value={quote.ask}>{fmt(instrument.symbol, quote.ask)}</PriceFlash>
                     </button>
                     <button
                       type="button"
@@ -422,10 +426,14 @@ function Trade() {
                           </span>
                           <span className="shrink-0 text-right font-mono text-xs">
                             <span className="block text-foreground">
-                              {fmt(instrument.symbol, marketQuote.bid)}
+                              <PriceFlash value={marketQuote.bid}>
+                                {fmt(instrument.symbol, marketQuote.bid)}
+                              </PriceFlash>
                             </span>
                             <span className="block text-[9px] text-muted-foreground">
-                              {fmt(instrument.symbol, marketQuote.ask)}
+                              <PriceFlash value={marketQuote.ask}>
+                                {fmt(instrument.symbol, marketQuote.ask)}
+                              </PriceFlash>
                             </span>
                           </span>
                         </button>
@@ -460,6 +468,8 @@ function Trade() {
             pendingOrders={chartPendingOrders}
             closedPositions={chartClosedPositions}
             indicators={indicators}
+            isFavourite={isFavourite(symbol)}
+            onToggleFavourite={() => toggle(symbol)}
             indicatorControl={
               <Popover>
                 <PopoverTrigger asChild>
@@ -560,13 +570,13 @@ function Trade() {
             <div className="border-r border-border px-4 py-3">
               <div className="text-[9px] font-medium text-negative">Sell</div>
               <div className="font-mono text-sm font-semibold text-foreground">
-                {fmt(symbol, q.bid)}
+                <PriceFlash value={q.bid}>{fmt(symbol, q.bid)}</PriceFlash>
               </div>
             </div>
             <div className="px-4 py-3 text-right">
               <div className="text-[9px] font-medium text-positive">Buy</div>
               <div className="font-mono text-sm font-semibold text-foreground">
-                {fmt(symbol, q.ask)}
+                <PriceFlash value={q.ask}>{fmt(symbol, q.ask)}</PriceFlash>
               </div>
             </div>
           </div>
@@ -663,7 +673,9 @@ function Trade() {
               >
                 <span>{orderType === "limit" ? "Sell limit" : "Sell"}</span>
                 <span className="font-mono text-[10px] font-medium opacity-85">
-                  {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.bid : q.bid)}
+                  <PriceFlash value={q.bid}>
+                    {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.bid : q.bid)}
+                  </PriceFlash>
                 </span>
               </Button>
               <Button
@@ -674,7 +686,9 @@ function Trade() {
               >
                 <span>{orderType === "limit" ? "Buy limit" : "Buy"}</span>
                 <span className="font-mono text-[10px] font-medium opacity-85">
-                  {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.ask : q.ask)}
+                  <PriceFlash value={q.ask}>
+                    {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.ask : q.ask)}
+                  </PriceFlash>
                 </span>
               </Button>
             </div>
@@ -709,7 +723,9 @@ function Trade() {
               >
                 {side}
                 <span className="ml-2 font-mono text-xs">
-                  {fmt(symbol, side === "buy" ? q.ask : q.bid)}
+                  <PriceFlash value={side === "buy" ? q.ask : q.bid}>
+                    {fmt(symbol, side === "buy" ? q.ask : q.bid)}
+                  </PriceFlash>
                 </span>
               </button>
             ))}
@@ -844,7 +860,7 @@ function Trade() {
         >
           <span className="text-xs font-semibold text-negative">Sell</span>
           <span className="font-mono text-sm font-semibold text-foreground">
-            {fmt(symbol, q.bid)}
+            <PriceFlash value={q.bid}>{fmt(symbol, q.bid)}</PriceFlash>
           </span>
         </button>
         <label className="flex min-h-14 flex-col items-center justify-center bg-card px-1 text-[9px] font-medium text-muted-foreground">
@@ -872,7 +888,7 @@ function Trade() {
         >
           <span className="text-xs font-semibold text-positive">Buy</span>
           <span className="font-mono text-sm font-semibold text-foreground">
-            {fmt(symbol, q.ask)}
+            <PriceFlash value={q.ask}>{fmt(symbol, q.ask)}</PriceFlash>
           </span>
         </button>
       </div>

@@ -6,6 +6,7 @@ import {
   Maximize2,
   Minimize2,
   SlidersHorizontal,
+  Star,
 } from "lucide-react";
 import {
   CandlestickSeries,
@@ -156,6 +157,8 @@ export function PriceChart({
   closedPositions,
   indicators,
   indicatorControl,
+  isFavourite = false,
+  onToggleFavourite,
   onOpenMarketPicker,
   onIntervalChange,
   onLoadOlder,
@@ -171,6 +174,8 @@ export function PriceChart({
   closedPositions: ChartClosedPosition[];
   indicators: ChartIndicators;
   indicatorControl?: ReactNode;
+  isFavourite?: boolean;
+  onToggleFavourite?: () => void;
   onOpenMarketPicker?: () => void;
   onIntervalChange?: (interval: ChartInterval) => void;
   onLoadOlder?: () => void;
@@ -821,6 +826,21 @@ export function PriceChart({
           </button>
           <button
             type="button"
+            aria-label={
+              isFavourite ? `Remove ${symbol} from watchlist` : `Add ${symbol} to watchlist`
+            }
+            aria-pressed={isFavourite}
+            onClick={onToggleFavourite}
+            className={`grid h-9 w-9 place-items-center rounded-md border backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+              isFavourite
+                ? "border-primary/45 bg-primary/15 text-primary"
+                : "border-border bg-card/90 text-muted-foreground"
+            }`}
+          >
+            <Star className="h-4 w-4" fill={isFavourite ? "currentColor" : "none"} />
+          </button>
+          <button
+            type="button"
             aria-label={showOhlc ? "Hide OHLC details" : "Show OHLC details"}
             aria-expanded={showOhlc}
             onClick={() => setShowOhlc((value) => !value)}
@@ -930,7 +950,7 @@ export function PriceChart({
             {expanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
           </button>
         </div>
-        <div className="absolute right-2 top-2 z-20 flex gap-1 sm:hidden">
+        <div className="absolute bottom-2 right-2 z-20 flex gap-1 sm:hidden">
           <button
             ref={mobileExpandButtonRef}
             type="button"
@@ -952,7 +972,7 @@ export function PriceChart({
             <SlidersHorizontal className="h-4 w-4" />
           </button>
           {mobileToolsOpen ? (
-            <div className="absolute right-0 top-11 w-44 overflow-hidden rounded-md border border-border bg-popover text-xs shadow-xl">
+            <div className="absolute bottom-11 right-0 w-44 overflow-hidden rounded-md border border-border bg-popover text-xs shadow-xl">
               <button
                 type="button"
                 onClick={cycleScale}
