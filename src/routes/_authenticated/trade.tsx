@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChartNoAxesCombined, Check, Radio, Search, Star } from "lucide-react";
+import { ChartNoAxesCombined, Check, ChevronDown, Search, Star } from "lucide-react";
 import { fmt } from "@/lib/market";
 import {
   CHART_INDICATOR_KEYS,
@@ -75,20 +75,13 @@ function Trade() {
     () => [...watchSymbols, symbol, ...(acc?.open ?? []).map((position) => position.symbol)],
     [watchSymbols, symbol, acc?.open],
   );
-  const {
-    quotes: liveQuotes,
-    isLoading: quotesLoading,
-    realtime: realtimeStatus,
-    realtimeError,
-  } = useMarketQuotes(feedSymbols, activeAccount?.id ?? null);
-  const {
-    candles,
-    source: candleSource,
-    feed: candleFeed,
-    loadOlder,
-    hasOlder,
-    isLoadingOlder,
-  } = useMarketCandles(symbol, timeframe, 500, activeAccount?.id ?? null);
+  const { quotes: liveQuotes } = useMarketQuotes(feedSymbols, activeAccount?.id ?? null);
+  const { candles, loadOlder, hasOlder, isLoadingOlder } = useMarketCandles(
+    symbol,
+    timeframe,
+    500,
+    activeAccount?.id ?? null,
+  );
   const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const open = useServerFn(openTrade);
   const placeLimit = useServerFn(placeLimitOrder);
@@ -164,35 +157,6 @@ function Trade() {
   const feedBlocked = !marketClosed && isStaleFeedQuote(q);
   const fallbackBlocked = isFallbackQuote(q);
   const entriesBlocked = marketClosed || feedBlocked || fallbackBlocked;
-  const streaming = q.feed === "meridian" && realtimeStatus === "live";
-  const feedLabel = marketClosed
-    ? "Market closed"
-    : q.feedFallback
-      ? "Market data unavailable"
-      : feedBlocked || realtimeStatus === "stale"
-        ? "Meridian stale"
-        : streaming
-          ? "Streaming"
-          : realtimeStatus === "unauthorized" || realtimeStatus === "error"
-            ? "Meridian error"
-            : quotesLoading && q.source === "simulated"
-              ? "Connecting"
-              : q.source === "live"
-                ? "Meridian REST"
-                : q.source === "cached"
-                  ? "Cached feed"
-                  : "Simulated feed";
-  const feedTone = marketClosed
-    ? "bg-muted text-muted-foreground"
-    : q.feedFallback || realtimeStatus === "unauthorized" || realtimeStatus === "error"
-      ? "bg-destructive/15 text-destructive"
-      : feedBlocked || realtimeStatus === "stale" || realtimeStatus === "reconnecting"
-        ? "bg-warning/15 text-warning"
-        : q.source === "live"
-          ? "bg-positive/15 text-positive"
-          : q.source === "cached"
-            ? "bg-muted text-muted-foreground"
-            : "bg-warning/15 text-warning";
   const money = (n: number) => formatMoney(n, currency);
   const input =
     "mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground/60 focus:border-primary focus:ring-1 focus:ring-primary";
@@ -256,44 +220,51 @@ function Trade() {
   return (
     <main className="min-h-[calc(100dvh-3.5rem)] overflow-x-clip bg-background pb-20 xl:min-h-screen xl:pb-0">
       <header className="border-b border-border bg-card">
-        <div className="grid min-h-14 gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4 sm:py-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold tracking-tight text-foreground">Market workspace</h1>
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${feedTone}`}
-                title={
-                  q.feedFallback
-                    ? "Meridian is unavailable for this symbol. Trading is paused."
-                    : (realtimeError ?? undefined)
-                }
-              >
-                <Radio className="h-2.5 w-2.5" />
-                {feedLabel}
-              </span>
-            </div>
-            <p className="truncate text-[11px] text-muted-foreground">
-              {activeAccount.nickname} · #{activeAccount.login} · {activeAccount.server}
-            </p>
+        <div className="flex min-h-14 items-center justify-between gap-3 px-3 py-2 sm:px-4">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <h1 className="shrink-0 text-sm font-bold tracking-tight text-foreground sm:text-base">
+              {symbol}
+            </h1>
+            <span className="truncate font-mono text-base font-semibold text-foreground sm:text-lg">
+              {fmt(symbol, q.mid)}
+            </span>
           </div>
-          <div className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-4 sm:border-0 sm:bg-transparent">
-            {[
-              ["Balance", balance],
-              ["Equity", equity],
-              ["Margin", used],
-              ["Free margin", equity - used],
-            ].map(([label, value]) => (
-              <div
-                key={label as string}
-                className="min-w-0 bg-background px-3 py-2 sm:bg-transparent sm:px-3 sm:py-0"
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Show account metrics"
+                className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-right transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                <div className="text-[10px] font-medium text-muted-foreground">{label}</div>
-                <div className="break-all font-mono text-[11px] font-semibold text-foreground sm:text-sm">
-                  {money(value as number)}
-                </div>
+                <span>
+                  <span className="block text-[9px] font-medium text-muted-foreground">Equity</span>
+                  <span className="block font-mono text-xs font-semibold text-foreground sm:text-sm">
+                    {money(equity)}
+                  </span>
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-60 border-border bg-popover p-2">
+              <div className="space-y-1">
+                {[
+                  ["Balance", balance],
+                  ["Margin", used],
+                  ["Free margin", equity - used],
+                ].map(([label, value]) => (
+                  <div
+                    key={label as string}
+                    className="flex items-center justify-between rounded-md px-2 py-2 text-xs hover:bg-accent"
+                  >
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="font-mono font-semibold text-foreground">
+                      {money(value as number)}
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </header>
 
@@ -480,73 +451,6 @@ function Trade() {
               </div>
             </SheetContent>
           </Sheet>
-          <div className="flex items-center border-b border-border bg-card px-3 py-1.5 sm:px-4">
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Select chart indicators"
-                  className={`relative flex h-9 items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:h-8 ${
-                    activeIndicatorCount > 0
-                      ? "border-primary/45 bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-                  }`}
-                >
-                  <ChartNoAxesCombined className="h-4 w-4" />
-                  <span className="hidden sm:inline">Indicators</span>
-                  {activeIndicatorCount > 0 ? (
-                    <span className="grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[9px] text-primary-foreground">
-                      {activeIndicatorCount}
-                    </span>
-                  ) : null}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-64 border-border bg-popover p-2">
-                <div className="border-b border-border px-2 pb-2 pt-1">
-                  <div className="text-sm font-semibold text-foreground">Chart indicators</div>
-                  <p className="text-[10px] text-muted-foreground">
-                    Add only the studies you need for this chart.
-                  </p>
-                </div>
-                <div className="py-1">
-                  {CHART_INDICATOR_KEYS.map((key) => (
-                    <button
-                      key={key}
-                      type="button"
-                      aria-pressed={indicators[key]}
-                      onClick={() =>
-                        setIndicators((current) => ({ ...current, [key]: !current[key] }))
-                      }
-                      className="flex h-11 w-full items-center justify-between rounded-md px-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    >
-                      <span>{CHART_INDICATOR_LABELS[key]}</span>
-                      <span
-                        className={`grid h-5 w-5 place-items-center rounded border ${
-                          indicators[key]
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-input text-transparent"
-                        }`}
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                {activeIndicatorCount > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setIndicators(DEFAULT_CHART_INDICATORS)}
-                    className="h-9 w-full rounded-md border border-border text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground"
-                  >
-                    Remove all indicators
-                  </button>
-                ) : null}
-              </PopoverContent>
-            </Popover>
-            <span className="ml-auto whitespace-nowrap text-[9px] text-muted-foreground">
-              {candleFeed === "meridian" ? "Meridian MT5" : (candleSource ?? "Loading")}
-            </span>
-          </div>
           <PriceChart
             symbol={symbol}
             quote={q}
@@ -556,6 +460,69 @@ function Trade() {
             pendingOrders={chartPendingOrders}
             closedPositions={chartClosedPositions}
             indicators={indicators}
+            indicatorControl={
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Select chart indicators"
+                    className={`relative grid h-9 w-9 place-items-center rounded-md border backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                      activeIndicatorCount > 0
+                        ? "border-primary/45 bg-primary/15 text-primary"
+                        : "border-border bg-card/90 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                  >
+                    <ChartNoAxesCombined className="h-4 w-4" />
+                    {activeIndicatorCount > 0 ? (
+                      <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 font-mono text-[9px] text-primary-foreground">
+                        {activeIndicatorCount}
+                      </span>
+                    ) : null}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-64 border-border bg-popover p-2">
+                  <div className="border-b border-border px-2 pb-2 pt-1">
+                    <div className="text-sm font-semibold text-foreground">Chart indicators</div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Add only the studies you need for this chart.
+                    </p>
+                  </div>
+                  <div className="py-1">
+                    {CHART_INDICATOR_KEYS.map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={indicators[key]}
+                        onClick={() =>
+                          setIndicators((current) => ({ ...current, [key]: !current[key] }))
+                        }
+                        className="flex h-11 w-full items-center justify-between rounded-md px-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        <span>{CHART_INDICATOR_LABELS[key]}</span>
+                        <span
+                          className={`grid h-5 w-5 place-items-center rounded border ${
+                            indicators[key]
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-input text-transparent"
+                          }`}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {activeIndicatorCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setIndicators(DEFAULT_CHART_INDICATORS)}
+                      className="h-9 w-full rounded-md border border-border text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      Remove all indicators
+                    </button>
+                  ) : null}
+                </PopoverContent>
+              </Popover>
+            }
             onOpenMarketPicker={() => setInstrumentPickerOpen(true)}
             onIntervalChange={setTimeframe}
             onLoadOlder={loadOlder}
@@ -865,7 +832,7 @@ function Trade() {
         </SheetContent>
       </Sheet>
 
-      <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-2 gap-px border-y border-border bg-border p-px shadow-[0_-8px_24px_rgba(0,0,0,0.28)] xl:hidden">
+      <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 grid grid-cols-[1fr_88px_1fr] gap-px border-y border-border bg-border p-px shadow-[0_-8px_24px_rgba(0,0,0,0.28)] xl:hidden">
         <button
           type="button"
           disabled={readOnly}
@@ -873,13 +840,27 @@ function Trade() {
             setMobileOrderSide("sell");
             setMobileOrderOpen(true);
           }}
-          className="flex min-h-14 items-center justify-between bg-card px-4 text-left disabled:opacity-50"
+          className="flex min-h-14 flex-col items-start justify-center bg-card px-3 text-left disabled:opacity-50"
         >
           <span className="text-xs font-semibold text-negative">Sell</span>
           <span className="font-mono text-sm font-semibold text-foreground">
             {fmt(symbol, q.bid)}
           </span>
         </button>
+        <label className="flex min-h-14 flex-col items-center justify-center bg-card px-1 text-[9px] font-medium text-muted-foreground">
+          Lots
+          <input
+            aria-label="Quick lot size"
+            type="number"
+            inputMode="decimal"
+            min="0.01"
+            step="0.01"
+            value={lots}
+            onChange={(event) => setLots(event.target.value)}
+            onFocus={(event) => event.currentTarget.select()}
+            className="mt-0.5 h-7 w-16 rounded border border-input bg-background px-1 text-center font-mono text-xs font-semibold text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+        </label>
         <button
           type="button"
           disabled={readOnly}
@@ -887,7 +868,7 @@ function Trade() {
             setMobileOrderSide("buy");
             setMobileOrderOpen(true);
           }}
-          className="flex min-h-14 items-center justify-between bg-card px-4 text-left disabled:opacity-50"
+          className="flex min-h-14 flex-col items-end justify-center bg-card px-3 text-right disabled:opacity-50"
         >
           <span className="text-xs font-semibold text-positive">Buy</span>
           <span className="font-mono text-sm font-semibold text-foreground">

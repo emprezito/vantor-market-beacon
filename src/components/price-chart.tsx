@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Camera,
   ChartCandlestick,
@@ -155,6 +155,7 @@ export function PriceChart({
   pendingOrders,
   closedPositions,
   indicators,
+  indicatorControl,
   onOpenMarketPicker,
   onIntervalChange,
   onLoadOlder,
@@ -169,6 +170,7 @@ export function PriceChart({
   pendingOrders: ChartPendingOrder[];
   closedPositions: ChartClosedPosition[];
   indicators: ChartIndicators;
+  indicatorControl?: ReactNode;
   onOpenMarketPicker?: () => void;
   onIntervalChange?: (interval: ChartInterval) => void;
   onLoadOlder?: () => void;
@@ -804,7 +806,7 @@ export function PriceChart({
           className={
             expanded
               ? "h-full w-full"
-              : "h-[clamp(320px,48dvh,440px)] w-full sm:h-[580px] xl:h-[calc(100dvh-11rem)] xl:min-h-[560px]"
+              : "h-[clamp(360px,58dvh,640px)] w-full sm:h-[680px] xl:h-[calc(100dvh-5rem)] xl:min-h-[640px]"
           }
         />
         <div className="absolute left-2 top-2 z-20 flex items-center gap-1">
@@ -842,6 +844,7 @@ export function PriceChart({
               </option>
             ))}
           </select>
+          {indicatorControl}
         </div>
         {showOhlc ? (
           <div className="pointer-events-none absolute left-2 top-12 z-10 max-w-[calc(100%-1rem)] rounded border border-border bg-card/90 px-2.5 py-2 text-[10px] leading-tight backdrop-blur sm:max-w-[calc(100%-14rem)]">
