@@ -1,4 +1,5 @@
 import type { ChartInterval, MarketQuote } from "./market-data";
+import { marketOpenForInstrument } from "./market-hours";
 
 export const MERIDIAN_DEFAULT_API_BASE_URL = "http://localhost:8000/api/v1";
 export const MERIDIAN_DEFAULT_WS_URL = "ws://localhost:8000/ws/v1/market";
@@ -129,6 +130,7 @@ export function marketQuoteFromMeridian(
   source: "live" | "cached" = "live",
 ): MarketQuote {
   const receivedAt = quote.received_at ? Date.parse(quote.received_at) : NaN;
+  const marketOpen = marketOpenForInstrument(symbol);
   return {
     symbol,
     bid: quote.bid,
@@ -137,6 +139,7 @@ export function marketQuoteFromMeridian(
     ts: quote.timestamp_ms ?? Date.now(),
     source,
     feed: "meridian",
+    ...(marketOpen == null ? {} : { marketOpen }),
     ...(Number.isFinite(receivedAt) ? { receivedAt } : {}),
   };
 }

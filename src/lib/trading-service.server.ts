@@ -18,6 +18,7 @@ import {
 import {
   FALLBACK_MARKET_MESSAGE,
   isFallbackQuote,
+  isMarketClosedQuote,
   isStaleFeedQuote,
   quoteFor,
   type QuoteMap,
@@ -109,6 +110,9 @@ function assertTradableQuote(quotes: QuoteMap, symbol: string): void {
   if (!quote) throw new Error("Live prices are unavailable");
   if (!fallbackTradingAllowed() && isFallbackQuote(quote)) {
     throw new Error(FALLBACK_MARKET_MESSAGE);
+  }
+  if (isMarketClosedQuote(quote)) {
+    throw new Error("Market is closed");
   }
   if (isStaleFeedQuote(quote)) {
     throw new Error("Market data is stale. Please try again shortly.");

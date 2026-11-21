@@ -14,6 +14,7 @@ import {
 import {
   CHART_INTERVALS,
   isFallbackQuote,
+  isMarketClosedQuote,
   isStaleFeedQuote,
   mergeQuotes,
   quoteFor,
@@ -147,27 +148,31 @@ function Trade() {
   const balance = acc?.balance ?? 0;
   const equity = balance + floating;
   const q = quoteFor(quotes, symbol, now);
-  const feedBlocked = isStaleFeedQuote(q);
+  const marketClosed = isMarketClosedQuote(q);
+  const feedBlocked = !marketClosed && isStaleFeedQuote(q);
   const fallbackBlocked = isFallbackQuote(q);
-  const entriesBlocked = feedBlocked || fallbackBlocked;
+  const entriesBlocked = marketClosed || feedBlocked || fallbackBlocked;
   const streaming = q.feed === "meridian" && realtimeStatus === "live";
-  const feedLabel = q.feedFallback
-    ? "Market data unavailable"
-    : feedBlocked || realtimeStatus === "stale"
-      ? "Meridian stale"
-      : streaming
-        ? "Streaming"
-        : realtimeStatus === "unauthorized" || realtimeStatus === "error"
-          ? "Meridian error"
-          : quotesLoading && q.source === "simulated"
-            ? "Connecting"
-            : q.source === "live"
-              ? "Meridian REST"
-              : q.source === "cached"
-                ? "Cached feed"
-                : "Simulated feed";
-  const feedTone =
-    q.feedFallback || realtimeStatus === "unauthorized" || realtimeStatus === "error"
+  const feedLabel = marketClosed
+    ? "Market closed"
+    : q.feedFallback
+      ? "Market data unavailable"
+      : feedBlocked || realtimeStatus === "stale"
+        ? "Meridian stale"
+        : streaming
+          ? "Streaming"
+          : realtimeStatus === "unauthorized" || realtimeStatus === "error"
+            ? "Meridian error"
+            : quotesLoading && q.source === "simulated"
+              ? "Connecting"
+              : q.source === "live"
+                ? "Meridian REST"
+                : q.source === "cached"
+                  ? "Cached feed"
+                  : "Simulated feed";
+  const feedTone = marketClosed
+    ? "bg-muted text-muted-foreground"
+    : q.feedFallback || realtimeStatus === "unauthorized" || realtimeStatus === "error"
       ? "bg-destructive/15 text-destructive"
       : feedBlocked || realtimeStatus === "stale" || realtimeStatus === "reconnecting"
         ? "bg-warning/15 text-warning"
@@ -567,6 +572,11 @@ function Trade() {
             {feedBlocked ? (
               <p className="rounded-md border border-warning/25 bg-warning/10 p-2 text-[10px] leading-relaxed text-warning">
                 Meridian pricing is stale. New orders are paused.
+              </p>
+            ) : null}
+            {marketClosed ? (
+              <p className="rounded-md border border-border bg-muted/60 p-2 text-[10px] leading-relaxed text-muted-foreground">
+                This market is closed. Trading resumes when the next session opens.
               </p>
             ) : null}
             {fallbackBlocked ? (

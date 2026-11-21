@@ -99,6 +99,10 @@ export function isStaleFeedQuote(quote: MarketQuote, now = Date.now()): boolean 
   return now - quote.ts > MERIDIAN_QUOTE_STALE_MS;
 }
 
+export function isMarketClosedQuote(quote: MarketQuote): boolean {
+  return quote.marketOpen === false;
+}
+
 export function isFallbackQuote(quote: MarketQuote): boolean {
   return quote.feedFallback === true;
 }
