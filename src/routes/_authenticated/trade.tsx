@@ -76,7 +76,7 @@ function Trade() {
     loadOlder,
     hasOlder,
     isLoadingOlder,
-  } = useMarketCandles(symbol, timeframe, 5_000, activeAccount?.id ?? null);
+  } = useMarketCandles(symbol, timeframe, 500, activeAccount?.id ?? null);
   const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const open = useServerFn(openTrade);
   const placeLimit = useServerFn(placeLimitOrder);
