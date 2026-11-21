@@ -171,11 +171,7 @@
 
 .vantor-hero {
   background-image:
-    radial-gradient(
-      ellipse 70% 60% at 92% 4%,
-      oklch(0.7364 0.0907 83.72 / 0.16),
-      transparent 68%
-    ),
+    radial-gradient(ellipse 70% 60% at 92% 4%, oklch(0.7364 0.0907 83.72 / 0.16), transparent 68%),
     repeating-linear-gradient(
       to bottom,
       transparent 0,

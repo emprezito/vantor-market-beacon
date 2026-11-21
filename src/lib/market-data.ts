@@ -92,11 +92,11 @@ export function quoteFor(quotes: QuoteMap | undefined, symbol: string, ts: numbe
   return syntheticQuote(symbol, ts);
 }
 
-export function isStaleFeedQuote(quote: MarketQuote): boolean {
+export function isStaleFeedQuote(quote: MarketQuote, now = Date.now()): boolean {
   if (quote.marketOpen === false) return true;
   if (quote.source === "simulated") return false;
   if (quote.source !== "live") return true;
-  return Date.now() - quote.ts > MERIDIAN_QUOTE_STALE_MS;
+  return now - quote.ts > MERIDIAN_QUOTE_STALE_MS;
 }
 
 export function isFallbackQuote(quote: MarketQuote): boolean {

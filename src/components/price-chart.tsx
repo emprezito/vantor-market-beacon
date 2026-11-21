@@ -30,13 +30,9 @@ import {
   type ChartIndicators,
 } from "@/lib/chart-indicators";
 import { buildChartMarkers } from "@/lib/chart-markers";
+import { mergeLiveBar } from "@/lib/chart-candles";
 import { fmt, getInstrument } from "@/lib/market";
-import {
-  intervalMs,
-  type ChartInterval,
-  type MarketCandle,
-  type MarketQuote,
-} from "@/lib/market-data";
+import { type ChartInterval, type MarketCandle, type MarketQuote } from "@/lib/market-data";
 import type { Side } from "@/lib/trading";
 
 type ChartPosition = {
@@ -85,45 +81,6 @@ const compactVolume = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
 });
-
-function bucketTime(ts: number, interval: ChartInterval): number {
-  const ms = intervalMs(interval);
-  return (Math.floor(ts / ms) * ms) / 1000;
-}
-
-function mergeLiveBar(
-  candles: MarketCandle[],
-  quote: MarketQuote,
-  interval: ChartInterval,
-): MarketCandle[] {
-  if (quote.feedFallback || quote.mid <= 0) return candles;
-  const live = candles[candles.length - 1];
-  if (!live) return candles;
-  const bucket = bucketTime(quote.ts, interval);
-  if (bucket < live.time) return candles;
-  if (bucket === live.time) {
-    return [
-      ...candles.slice(0, -1),
-      {
-        ...live,
-        high: Math.max(live.high, quote.mid),
-        low: Math.min(live.low, quote.mid),
-        close: quote.mid,
-      },
-    ];
-  }
-  return [
-    ...candles,
-    {
-      time: bucket,
-      open: live.close,
-      high: Math.max(live.close, quote.mid),
-      low: Math.min(live.close, quote.mid),
-      close: quote.mid,
-      ...(live.volume == null ? {} : { volume: live.volume }),
-    },
-  ];
-}
 
 function timeToMs(time: Time): number | null {
   if (typeof time === "number") return time * 1000;
@@ -680,7 +637,7 @@ export function PriceChart({
         color: last.close >= last.open ? "rgba(22, 163, 74, 0.55)" : "rgba(220, 38, 38, 0.55)",
       });
     }
-  }, [interval, quote, symbol]);
+  }, [candles, interval, quote, symbol]);
 
   useEffect(() => {
     const chart = chartRef.current;

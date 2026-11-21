@@ -150,7 +150,7 @@ function Index() {
         <div className="mx-auto flex h-9 max-w-[1440px] items-center justify-between gap-4 px-5 sm:px-8">
           <span className="vantor-mono flex items-center gap-2 text-[10px] text-vantor-paper/70">
             <span className="size-1.5 shrink-0 bg-vantor-brass" aria-hidden="true" />
-            Indicative pricing, refreshed every 30 seconds
+            {liveCount > 0 ? "Live pricing" : "Indicative pricing"}, refreshed every 30 seconds
           </span>
           <span className="hidden text-[11px] text-vantor-paper/50 sm:block">
             Forex, metals, indices and crypto
@@ -175,7 +175,7 @@ function Index() {
               <span className="vantor-display block text-[26px] leading-none tracking-[-0.02em]">
                 Vantor
               </span>
-              <span className="mt-1 hidden text-[10px] text-vantor-ink/55 sm:block">
+              <span className="mt-1 hidden text-[10px] text-vantor-ink/65 sm:block">
                 Multi-asset brokerage
               </span>
             </span>
@@ -212,7 +212,7 @@ function Index() {
                 <Link
                   to="/auth"
                   search={{ mode: "in" }}
-                  className="hidden text-[13px] text-vantor-ink/65 transition-colors hover:text-vantor-ink sm:inline-flex"
+                  className="whitespace-nowrap text-[12px] text-vantor-ink/65 transition-colors hover:text-vantor-ink sm:text-[13px]"
                 >
                   Sign in
                 </Link>
@@ -265,7 +265,7 @@ function Index() {
                   Compare accounts
                 </a>
               </div>
-              <div className="mt-10 flex flex-wrap gap-x-8 gap-y-3 border-t border-vantor-ink/15 pt-5 text-[12px] text-vantor-ink/60">
+              <div className="mt-10 flex flex-wrap gap-x-8 gap-y-3 border-t border-vantor-ink/15 pt-5 text-[12px] text-vantor-ink/65">
                 <span>Spreads from 0.0 pips</span>
                 <span>Leverage up to 1:2000</span>
                 <span>Negative balance protection</span>
@@ -281,9 +281,9 @@ function Index() {
                   <h2 id="market-sheet-heading" className="vantor-display text-[22px] leading-none">
                     Market sheet
                   </h2>
-                  <p className="mt-1.5 text-[10px] text-vantor-ink/50">Indicative mid prices</p>
+                  <p className="mt-1.5 text-[10px] text-vantor-ink/65">Indicative mid prices</p>
                 </div>
-                <span className="vantor-mono flex items-center gap-2 text-[10px] text-vantor-ink/60">
+                <span className="vantor-mono flex items-center gap-2 text-[10px] text-vantor-ink/65">
                   <span
                     className={`size-1.5 ${liveCount > 0 ? "bg-vantor-live" : "bg-vantor-ink/25"}`}
                     aria-hidden="true"
@@ -294,7 +294,7 @@ function Index() {
 
               <table className="w-full border-collapse">
                 <thead>
-                  <tr className="border-b border-vantor-ink/20 text-[10px] text-vantor-ink/50">
+                  <tr className="border-b border-vantor-ink/20 text-[10px] text-vantor-ink/65">
                     <th scope="col" className="py-3 pl-5 pr-3 text-left font-medium sm:pl-6">
                       Instrument
                     </th>
@@ -323,20 +323,20 @@ function Index() {
                       >
                         <td className="py-3.5 pl-5 pr-3 sm:pl-6">
                           <span className="block text-[13px] font-medium">{label}</span>
-                          <span className="vantor-mono mt-0.5 block text-[10px] text-vantor-ink/45">
+                          <span className="vantor-mono mt-0.5 block text-[10px] text-vantor-ink/65">
                             {symbol}
                           </span>
                         </td>
                         <td className="vantor-mono py-3.5 text-right text-[13px] tabular-nums">
                           {price}
                         </td>
-                        <td className="vantor-mono hidden py-3.5 text-right text-[11px] text-vantor-ink/55 sm:table-cell">
+                        <td className="vantor-mono hidden py-3.5 text-right text-[11px] text-vantor-ink/65 sm:table-cell">
                           {live ? spread : "—"}
                         </td>
                         <td className="py-3.5 pl-4 pr-5 text-right sm:pr-6">
                           <span
                             className={`inline-flex items-center gap-1.5 text-[10px] ${
-                              live ? "text-vantor-pine" : "text-vantor-ink/40"
+                              live ? "text-vantor-pine" : "text-vantor-ink/65"
                             }`}
                           >
                             <span
@@ -354,7 +354,7 @@ function Index() {
                 </tbody>
               </table>
 
-              <div className="border-t border-vantor-ink/15 px-5 py-3 text-[10px] leading-5 text-vantor-ink/45 sm:px-6">
+              <div className="border-t border-vantor-ink/15 px-5 py-3 text-[10px] leading-5 text-vantor-ink/65 sm:px-6">
                 Quotes refresh every 30 seconds. Indicative pricing may differ from executable
                 prices.
               </div>
@@ -428,7 +428,7 @@ function Index() {
                   matches how you trade.
                 </p>
               </div>
-              <p className="vantor-mono shrink-0 text-[10px] text-vantor-ink/45">
+              <p className="vantor-mono shrink-0 text-[10px] text-vantor-ink/65">
                 Minimum funding shown in USD
               </p>
             </div>
@@ -436,7 +436,7 @@ function Index() {
             <div className="mt-12 hidden border-t border-vantor-ink/30 lg:block">
               <table className="w-full border-collapse text-left">
                 <thead>
-                  <tr className="border-b border-vantor-ink/20 text-[11px] text-vantor-ink/50">
+                  <tr className="border-b border-vantor-ink/20 text-[11px] text-vantor-ink/65">
                     <th scope="col" className="py-4 pr-6 font-medium">
                       Account
                     </th>
@@ -464,7 +464,7 @@ function Index() {
                         <span className="vantor-display block text-[26px] leading-none tracking-[-0.02em]">
                           {account.name}
                         </span>
-                        <span className="mt-2 block max-w-[26ch] text-[11px] leading-5 text-vantor-ink/50">
+                        <span className="mt-2 block max-w-[26ch] text-[11px] leading-5 text-vantor-ink/65">
                           {account.description}
                         </span>
                       </th>
@@ -503,13 +503,13 @@ function Index() {
                     </h3>
                     <span className="vantor-mono text-[12px]">{account.minimum}</span>
                   </div>
-                  <p className="mt-2 text-[11px] leading-5 text-vantor-ink/50">
+                  <p className="mt-2 text-[11px] leading-5 text-vantor-ink/65">
                     {account.description}
                   </p>
                   <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 border-t border-vantor-ink/10 pt-3 text-[12px]">
-                    <dt className="text-vantor-ink/50">Typical spread</dt>
+                    <dt className="text-vantor-ink/65">Typical spread</dt>
                     <dd className="text-right text-vantor-ink/75">{account.spread}</dd>
-                    <dt className="text-vantor-ink/50">Commission</dt>
+                    <dt className="text-vantor-ink/65">Commission</dt>
                     <dd className="text-right text-vantor-ink/75">{account.commission}</dd>
                   </dl>
                   <div className="mt-4">
@@ -527,7 +527,7 @@ function Index() {
               ))}
             </div>
 
-            <p className="mt-6 max-w-2xl text-[10px] leading-5 text-vantor-ink/45">
+            <p className="mt-6 max-w-2xl text-[10px] leading-5 text-vantor-ink/65">
               Spreads are indicative and vary with market conditions. Commission is charged per lot
               where shown.
             </p>
@@ -628,6 +628,16 @@ function Index() {
                     </Link>
                   </li>
                   <li>
+                    <Link to="/wallet" className="transition-colors hover:text-vantor-paper">
+                      Wallet
+                    </Link>
+                  </li>
+                  <li>
+                    <Link to="/history" className="transition-colors hover:text-vantor-paper">
+                      History
+                    </Link>
+                  </li>
+                  <li>
                     <Link to="/accounts" className="transition-colors hover:text-vantor-paper">
                       Manage accounts
                     </Link>
@@ -678,7 +688,7 @@ function Index() {
         </div>
 
         <div className="border-t border-vantor-paper/10">
-          <div className="mx-auto flex max-w-[1440px] flex-col gap-2 px-5 py-5 text-[10px] text-vantor-paper/40 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+          <div className="mx-auto flex max-w-[1440px] flex-col gap-2 px-5 py-5 text-[10px] text-vantor-paper/55 sm:flex-row sm:items-center sm:justify-between sm:px-8">
             <p>© 2026 Vantor. All rights reserved.</p>
             <p>Pricing shown is indicative and may differ from executable prices.</p>
           </div>
