@@ -84,6 +84,7 @@ export const getMarketCandles = createServerFn({ method: "POST" })
       interval: ChartInterval;
       points?: number;
       accountId?: string | null;
+      before?: number | null;
     }) => {
       if (typeof input.symbol !== "string" || !input.symbol.trim())
         throw new Error("Unknown instrument");
@@ -91,16 +92,20 @@ export const getMarketCandles = createServerFn({ method: "POST" })
       const points = input.points == null ? 180 : Math.round(input.points);
       if (!Number.isFinite(points) || points < 20 || points > 500)
         throw new Error("Invalid candle count");
+      const before = input.before == null ? null : Number(input.before);
+      if (before != null && (!Number.isFinite(before) || before <= 0))
+        throw new Error("Invalid candle cursor");
       return {
         symbol: input.symbol,
         interval: input.interval,
         points,
         accountId: validateAccountId(input.accountId),
+        before,
       };
     },
   )
   .handler(async ({ data, context }) => {
     const { loadCandles } = await import("./market-data.server");
     await accountServerId(context, data.accountId);
-    return loadCandles(data.symbol, data.interval, data.points);
+    return loadCandles(data.symbol, data.interval, data.points, { before: data.before });
   });

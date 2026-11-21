@@ -11,6 +11,7 @@ import { findInstrument } from "./market";
 import {
   isChartInterval,
   isInstrument,
+  intervalMs,
   syntheticCandles,
   syntheticQuote,
   type ChartInterval,
@@ -164,7 +165,16 @@ function parseCandle(value: MeridianCandle): MarketCandle | null {
   const high = Number(value.high);
   const low = Number(value.low);
   const close = Number(value.close);
-  if (![time, open, high, low, close].every(Number.isFinite)) return null;
+  if (
+    value.complete === false ||
+    ![time, open, high, low, close].every(Number.isFinite) ||
+    time <= 0 ||
+    [open, high, low, close].some((price) => price <= 0) ||
+    high < Math.max(open, close) ||
+    low > Math.min(open, close)
+  ) {
+    return null;
+  }
   const tickCount = Number(value.tick_count);
   return {
     time,
@@ -180,14 +190,22 @@ async function fetchLiveCandles(
   symbol: string,
   interval: ChartInterval,
   points: number,
+  end: number,
 ): Promise<MarketCandles> {
   const provider = (await meridianProviderSymbols([symbol])).get(symbol);
   if (!provider) throw new Error(`No Meridian symbol mapping for ${symbol}`);
-  const payload = await fetchMeridianCandles(provider, MERIDIAN_TIMEFRAMES[interval], points);
-  const candles = (payload.candles ?? [])
-    .map(parseCandle)
-    .filter((candle): candle is MarketCandle => candle != null)
-    .sort((left, right) => left.time - right.time);
+  const minimumWindowMs = 7 * 24 * 60 * 60_000;
+  const historyWindowMs = Math.max(minimumWindowMs, intervalMs(interval) * points * 2);
+  const payload = await fetchMeridianCandles(provider, MERIDIAN_TIMEFRAMES[interval], points, {
+    start: new Date(end - historyWindowMs).toISOString(),
+    end: new Date(end).toISOString(),
+  });
+  const byTime = new Map<number, MarketCandle>();
+  for (const value of payload.candles ?? []) {
+    const candle = parseCandle(value);
+    if (candle) byTime.set(candle.time, candle);
+  }
+  const candles = Array.from(byTime.values()).sort((left, right) => left.time - right.time);
   if (candles.length === 0) throw new Error(`No candles returned for ${symbol}`);
   return {
     symbol,
@@ -220,17 +238,23 @@ export async function loadCandles(
   symbol: string,
   interval: ChartInterval,
   points = 180,
-  _options: { serverId?: string | null } = {},
+  options: { serverId?: string | null; before?: number | null } = {},
 ): Promise<MarketCandles> {
   const catalogAvailable = await loadMeridianCatalog()
     .then(() => true)
     .catch(() => false);
   const safeInterval = isChartInterval(interval) ? interval : "1min";
   const safePoints = Math.min(500, Math.max(20, Math.round(points)));
-  if (!isInstrument(symbol)) return fallbackCandles(symbol, safeInterval, safePoints);
-  if (!catalogAvailable) return fallbackCandles(symbol, safeInterval, safePoints);
+  const before =
+    typeof options.before === "number" && Number.isFinite(options.before) && options.before > 0
+      ? options.before
+      : null;
+  const end = before ?? Date.now();
+  if (!isInstrument(symbol)) return fallbackCandles(symbol, safeInterval, safePoints, end);
+  if (!catalogAvailable) return fallbackCandles(symbol, safeInterval, safePoints, end);
 
-  const cacheKey = `${symbol}:${safeInterval}:${safePoints}`;
+  const page = before == null ? "latest" : String(Math.floor(before / 1000));
+  const cacheKey = `${symbol}:${safeInterval}:${safePoints}:${page}`;
   const cached = candleCache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.fetchedAt < candleTtlMs(safeInterval)) {
@@ -239,12 +263,12 @@ export async function loadCandles(
   if ((candleRetryAfter.get(cacheKey) ?? 0) > now) {
     return cached
       ? { ...cached.series, source: "cached" as FeedSource }
-      : fallbackCandles(symbol, safeInterval, safePoints, now);
+      : fallbackCandles(symbol, safeInterval, safePoints, end);
   }
 
   const existing = inFlightCandles.get(cacheKey);
   if (existing) return existing;
-  const request = fetchLiveCandles(symbol, safeInterval, safePoints)
+  const request = fetchLiveCandles(symbol, safeInterval, safePoints, end)
     .then((series) => {
       candleRetryAfter.delete(cacheKey);
       candleCache.set(cacheKey, { series, fetchedAt: Date.now() });
@@ -254,7 +278,7 @@ export async function loadCandles(
       candleRetryAfter.set(cacheKey, Date.now() + retryMs(error));
       return cached
         ? { ...cached.series, source: "cached" as FeedSource }
-        : fallbackCandles(symbol, safeInterval, safePoints);
+        : fallbackCandles(symbol, safeInterval, safePoints, end);
     })
     .finally(() => inFlightCandles.delete(cacheKey));
   inFlightCandles.set(cacheKey, request);

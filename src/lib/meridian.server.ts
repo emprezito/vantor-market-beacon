@@ -351,6 +351,7 @@ export async function fetchMeridianCandles(
   providerSymbol: string,
   timeframe: string,
   limit: number,
+  range: { start?: string; end?: string } = {},
 ): Promise<MeridianCandleResponse> {
   const params = new URLSearchParams({
     symbol: providerSymbol,
@@ -358,6 +359,8 @@ export async function fetchMeridianCandles(
     price_type: "bid",
     limit: String(limit),
   });
+  if (range.start) params.set("start", range.start);
+  if (range.end) params.set("end", range.end);
   return meridianRequest<MeridianCandleResponse>(`/candles?${params}`);
 }
 

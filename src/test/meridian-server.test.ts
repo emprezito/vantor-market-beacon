@@ -81,7 +81,8 @@ describe("Meridian server client", () => {
     );
   });
 
-  it("normalizes REST quotes and candles into Vantor models", async () => {
+  it("normalizes REST quotes and requests timeframe-aware candle history", async () => {
+    const candleRequests: URL[] = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       expect(new Headers(init?.headers).get("X-API-Key")).toBe("md_test_secret");
@@ -113,12 +114,12 @@ describe("Meridian server client", () => {
         ]);
       }
       if (url.includes("/candles?")) {
-        expect(url).toContain("timeframe=M5");
+        candleRequests.push(new URL(url));
         return json({
           symbol: "EURUSD",
-          timeframe: "M5",
+          timeframe: new URL(url).searchParams.get("timeframe"),
           price_type: "bid",
-          count: 1,
+          count: 4,
           candles: [
             {
               time: new Date(now).toISOString(),
@@ -127,6 +128,33 @@ describe("Meridian server client", () => {
               low: 1,
               close: 1.15,
               tick_count: 42,
+              complete: true,
+            },
+            {
+              time: new Date(now).toISOString(),
+              open: 1.1,
+              high: 1.2,
+              low: 1,
+              close: 1.16,
+              tick_count: 43,
+              complete: true,
+            },
+            {
+              time: new Date(now - 300_000).toISOString(),
+              open: 1.1,
+              high: 1.2,
+              low: 1,
+              close: 1.15,
+              tick_count: 40,
+              complete: false,
+            },
+            {
+              time: new Date(now - 600_000).toISOString(),
+              open: 1.1,
+              high: 1.12,
+              low: 1,
+              close: 1.15,
+              tick_count: 41,
               complete: true,
             },
           ],
@@ -151,7 +179,26 @@ describe("Meridian server client", () => {
       source: "live",
       feed: "meridian",
     });
-    expect(candles.candles[0]).toMatchObject({ close: 1.15, volume: 42 });
+    expect(candles.candles).toHaveLength(1);
+    expect(candles.candles[0]).toMatchObject({ close: 1.16, volume: 43 });
+
+    await loadCandles("EURUSD", "1day", 500);
+    const intradayRequest = candleRequests.find(
+      (request) => request.searchParams.get("timeframe") === "M5",
+    );
+    const dailyRequest = candleRequests.find(
+      (request) => request.searchParams.get("timeframe") === "D1",
+    );
+    expect(intradayRequest?.searchParams.get("limit")).toBe("20");
+    expect(dailyRequest?.searchParams.get("limit")).toBe("500");
+    expect(
+      Date.parse(intradayRequest!.searchParams.get("end")!) -
+        Date.parse(intradayRequest!.searchParams.get("start")!),
+    ).toBe(7 * 24 * 60 * 60_000);
+    expect(
+      Date.parse(dailyRequest!.searchParams.get("end")!) -
+        Date.parse(dailyRequest!.searchParams.get("start")!),
+    ).toBe(1_000 * 24 * 60 * 60_000);
   });
 
   it("requests a short-lived WebSocket token server-side", async () => {

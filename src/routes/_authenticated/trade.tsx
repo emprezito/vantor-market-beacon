@@ -73,7 +73,10 @@ function Trade() {
     candles,
     source: candleSource,
     feed: candleFeed,
-  } = useMarketCandles(symbol, timeframe, 180, activeAccount?.id ?? null);
+    loadOlder,
+    hasOlder,
+    isLoadingOlder,
+  } = useMarketCandles(symbol, timeframe, 500, activeAccount?.id ?? null);
   const quotes = useMemo(() => mergeQuotes(acc?.quotes, liveQuotes), [acc?.quotes, liveQuotes]);
   const open = useServerFn(openTrade);
   const placeLimit = useServerFn(placeLimitOrder);
@@ -392,6 +395,9 @@ function Trade() {
             pendingOrders={chartPendingOrders}
             closedPositions={chartClosedPositions}
             indicators={indicators}
+            onLoadOlder={loadOlder}
+            hasOlder={hasOlder}
+            isLoadingOlder={isLoadingOlder}
           />
         </section>
 

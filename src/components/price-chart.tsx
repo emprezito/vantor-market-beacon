@@ -142,6 +142,9 @@ export function PriceChart({
   pendingOrders,
   closedPositions,
   indicators,
+  onLoadOlder,
+  hasOlder = false,
+  isLoadingOlder = false,
 }: {
   symbol: string;
   quote: MarketQuote;
@@ -151,6 +154,9 @@ export function PriceChart({
   pendingOrders: ChartPendingOrder[];
   closedPositions: ChartClosedPosition[];
   indicators: ChartIndicators;
+  onLoadOlder?: () => void;
+  hasOlder?: boolean;
+  isLoadingOlder?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -826,6 +832,16 @@ export function PriceChart({
             {expanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
           </button>
         </div>
+        {hasOlder && onLoadOlder ? (
+          <button
+            type="button"
+            className="absolute bottom-2 left-2 z-10 rounded bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-white disabled:cursor-wait disabled:opacity-60"
+            disabled={isLoadingOlder}
+            onClick={onLoadOlder}
+          >
+            {isLoadingOlder ? "Loading history..." : "Load older candles"}
+          </button>
+        ) : null}
       </div>
       <div className="mt-1 text-right text-[10px] text-muted-foreground">
         Charts by{" "}
