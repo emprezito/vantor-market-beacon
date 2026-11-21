@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useMarketCandles, useMarketQuotes } from "@/hooks/use-market-data";
@@ -55,7 +55,7 @@ beforeEach(() => {
 });
 
 describe("useMarketCandles history", () => {
-  it("automatically loads and merges every older candle page", async () => {
+  it("loads and merges older candle pages on demand", async () => {
     const latest: MarketCandle[] = [
       { time: 300, open: 3, high: 4, low: 2, close: 3.5 },
       { time: 400, open: 4, high: 5, low: 3, close: 4.5 },
@@ -85,10 +85,7 @@ describe("useMarketCandles history", () => {
       { wrapper },
     );
 
-    await waitFor(() =>
-      expect(result.current.candles.map((candle) => candle.time)).toEqual([100, 200, 300, 400]),
-    );
-    await waitFor(() => expect(result.current.hasOlder).toBe(false));
+    await waitFor(() => expect(result.current.candles).toEqual(latest));
     expect(mocks.candlesFn).toHaveBeenNthCalledWith(1, {
       data: {
         symbol: "EURUSD",
@@ -97,6 +94,10 @@ describe("useMarketCandles history", () => {
         accountId: "account-1",
       },
     });
+    act(() => result.current.loadOlder());
+    await waitFor(() =>
+      expect(result.current.candles.map((candle) => candle.time)).toEqual([100, 200, 300, 400]),
+    );
     expect(mocks.candlesFn).toHaveBeenNthCalledWith(2, {
       data: {
         symbol: "EURUSD",
@@ -104,15 +105,6 @@ describe("useMarketCandles history", () => {
         points: 20,
         accountId: "account-1",
         before: 299_999,
-      },
-    });
-    expect(mocks.candlesFn).toHaveBeenNthCalledWith(3, {
-      data: {
-        symbol: "EURUSD",
-        interval: "5min",
-        points: 20,
-        accountId: "account-1",
-        before: 99_999,
       },
     });
   });

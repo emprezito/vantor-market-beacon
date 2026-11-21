@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getMarketCandles, getMarketQuotes } from "@/lib/market.functions";
@@ -117,13 +117,6 @@ export function useMarketCandles(
       before: oldest * 1000 - 1,
     });
   };
-  const loadOlderAutomatically = useEffectEvent(loadOlder);
-
-  useEffect(() => {
-    if (query.data == null || !hasOlder || older.isPending || older.isError) return;
-    loadOlderAutomatically();
-  }, [hasOlder, historyKey, oldest, older.isError, older.isPending, query.data]);
-
   return {
     candles,
     source: query.data?.source,

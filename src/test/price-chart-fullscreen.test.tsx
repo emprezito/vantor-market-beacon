@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const makeSeries = () => ({
@@ -15,6 +15,17 @@ const mocks = vi.hoisted(() => {
     moveTo: vi.fn(),
     addSeries: vi.fn(makeSeries),
   });
+  let visibleRangeHandler: ((range: { from: number; to: number } | null) => void) | null = null;
+  const timeScale = {
+    getVisibleLogicalRange: vi.fn(() => ({ from: 20, to: 120 })),
+    setVisibleLogicalRange: vi.fn(),
+    subscribeVisibleLogicalRangeChange: vi.fn(
+      (handler: (range: { from: number; to: number } | null) => void) => {
+        visibleRangeHandler = handler;
+      },
+    ),
+    unsubscribeVisibleLogicalRangeChange: vi.fn(),
+  };
   return {
     chart: {
       addSeries: vi.fn(makeSeries),
@@ -25,11 +36,14 @@ const mocks = vi.hoisted(() => {
       subscribeCrosshairMove: vi.fn(),
       unsubscribeCrosshairMove: vi.fn(),
       remove: vi.fn(),
-      timeScale: vi.fn(() => ({ fitContent: vi.fn() })),
+      timeScale: vi.fn(() => timeScale),
       applyOptions: vi.fn(),
       priceScale: vi.fn(() => ({ applyOptions: vi.fn() })),
     },
     markers: { setMarkers: vi.fn() },
+    timeScale,
+    emitVisibleRange: (range: { from: number; to: number } | null) =>
+      visibleRangeHandler?.(range),
   };
 });
 
@@ -74,6 +88,7 @@ function renderChart() {
   );
 }
 
+beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
 describe("price chart fullscreen", () => {
@@ -93,5 +108,67 @@ describe("price chart fullscreen", () => {
 
     expect(screen.getByRole("button", { name: "Expand chart to fullscreen" })).toBeInTheDocument();
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("loads older candles when the user scrolls near the left edge", () => {
+    const onLoadOlder = vi.fn();
+    render(
+      <PriceChart
+        symbol="EURUSD"
+        quote={quote}
+        candles={[]}
+        interval="1min"
+        positions={[]}
+        pendingOrders={[]}
+        closedPositions={[]}
+        indicators={{ sma: false, ema: false, rsi: false, macd: false }}
+        onLoadOlder={onLoadOlder}
+        hasOlder
+      />,
+    );
+
+    act(() => mocks.emitVisibleRange({ from: 150, to: 250 }));
+    expect(onLoadOlder).not.toHaveBeenCalled();
+
+    act(() => mocks.emitVisibleRange({ from: 80, to: 180 }));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+    act(() => mocks.emitVisibleRange({ from: 70, to: 170 }));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the same candles visible when older history is prepended", () => {
+    const recent = [
+      { time: 300, open: 1.1, high: 1.2, low: 1, close: 1.15 },
+      { time: 400, open: 1.15, high: 1.25, low: 1.1, close: 1.2 },
+    ];
+    const props = {
+      symbol: "EURUSD",
+      quote,
+      interval: "1min" as const,
+      positions: [],
+      pendingOrders: [],
+      closedPositions: [],
+      indicators: { sma: false, ema: false, rsi: false, macd: false },
+    };
+    const { rerender } = render(<PriceChart {...props} candles={recent} />);
+    mocks.timeScale.setVisibleLogicalRange.mockClear();
+    mocks.timeScale.getVisibleLogicalRange.mockReturnValue({ from: 20, to: 120 });
+
+    rerender(
+      <PriceChart
+        {...props}
+        candles={[
+          { time: 100, open: 1, high: 1.1, low: 0.9, close: 1.05 },
+          { time: 200, open: 1.05, high: 1.15, low: 1, close: 1.1 },
+          ...recent,
+        ]}
+      />,
+    );
+
+    expect(mocks.timeScale.setVisibleLogicalRange).toHaveBeenLastCalledWith({
+      from: 22,
+      to: 122,
+    });
   });
 });

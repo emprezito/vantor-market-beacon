@@ -16,6 +16,7 @@ import {
   type IPriceLine,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
+  type LogicalRange,
   type MouseEventParams,
   type Time,
   type UTCTimestamp,
@@ -176,6 +177,8 @@ export function PriceChart({
   const barsRef = useRef<MarketCandle[]>([]);
   const fittedRef = useRef(false);
   const lastIntervalRef = useRef<ChartInterval | null>(null);
+  const historyLoadPendingRef = useRef(false);
+  const historyStateRef = useRef({ onLoadOlder, hasOlder, isLoadingOlder });
   const [hovered, setHovered] = useState<HoveredBar | null>(null);
   const [scaleMode, setScaleMode] = useState<PriceScaleMode>(PriceScaleMode.Normal);
   const [invertScale, setInvertScale] = useState(false);
@@ -183,6 +186,11 @@ export function PriceChart({
   const [magnet, setMagnet] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    historyStateRef.current = { onLoadOlder, hasOlder, isLoadingOlder };
+    if (!isLoadingOlder) historyLoadPendingRef.current = false;
+  }, [hasOlder, isLoadingOlder, onLoadOlder]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -324,9 +332,18 @@ export function PriceChart({
       });
     };
     chart.subscribeCrosshairMove(handleCrosshair);
+    const handleVisibleRange = (range: LogicalRange | null) => {
+      if (!range || range.from > 100 || historyLoadPendingRef.current) return;
+      const history = historyStateRef.current;
+      if (!history.hasOlder || history.isLoadingOlder || !history.onLoadOlder) return;
+      historyLoadPendingRef.current = true;
+      history.onLoadOlder();
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRange);
 
     return () => {
       chart.unsubscribeCrosshairMove(handleCrosshair);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRange);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -353,6 +370,11 @@ export function PriceChart({
     const series = seriesRef.current;
     if (!chart || !series) return;
 
+    const previous = barsRef.current;
+    const visibleRange = chart.timeScale().getVisibleLogicalRange();
+    const previousFirst = previous[0]?.time;
+    const prepended =
+      previousFirst == null ? 0 : candles.findIndex((candle) => candle.time === previousFirst);
     series.setData(
       candles.map((candle) => ({
         time: candle.time as UTCTimestamp,
@@ -366,9 +388,18 @@ export function PriceChart({
 
     const intervalChanged = lastIntervalRef.current !== interval;
     lastIntervalRef.current = interval;
-    if (candles.length > 0 && (!fittedRef.current || intervalChanged)) {
-      chart.timeScale().fitContent();
+    if (intervalChanged) fittedRef.current = false;
+    if (candles.length > 0 && !fittedRef.current) {
+      chart.timeScale().setVisibleLogicalRange({
+        from: Math.max(0, candles.length - 150),
+        to: candles.length + 3,
+      });
       fittedRef.current = true;
+    } else if (prepended > 0 && visibleRange) {
+      chart.timeScale().setVisibleLogicalRange({
+        from: visibleRange.from + prepended,
+        to: visibleRange.to + prepended,
+      });
     }
   }, [candles, interval, symbol]);
 
