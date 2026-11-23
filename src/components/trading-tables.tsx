@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { fmt } from "@/lib/market";
 import { isFallbackQuote, isStaleFeedQuote, quoteFor, type QuoteMap } from "@/lib/market-data";
@@ -160,6 +162,7 @@ export function OpenPositionsSection({
   busy: boolean;
   onClose: (id: string) => void;
 }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const floating = positions.reduce((sum, p) => {
     const quote = quoteFor(quotes, p.symbol, now);
     if (isFallbackQuote(quote) || isStaleFeedQuote(quote)) return sum;
@@ -204,53 +207,78 @@ export function OpenPositionsSection({
                   current,
                 ) * fxRate;
           return (
-            <article key={position.id} className="space-y-3 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-foreground">{position.symbol}</span>
-                    <span
-                      className={`text-[10px] font-semibold ${position.side === "buy" ? "text-positive" : "text-negative"}`}
-                    >
-                      {position.side.toUpperCase()} {Number(position.lots).toFixed(2)}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                    {fmt(position.symbol, Number(position.open_price))} →{" "}
-                    {fmt(position.symbol, current)}
-                  </p>
-                </div>
-                <span
-                  className={`font-mono text-sm font-semibold ${pnl >= 0 ? "text-positive" : "text-negative"}`}
-                >
-                  {formatMoney(pnl, currency)}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/40 p-2 text-[10px]">
-                <div>
-                  <span className="text-muted-foreground">Stop loss</span>
-                  <span className="block font-mono text-foreground">
-                    {position.stop_loss ? fmt(position.symbol, Number(position.stop_loss)) : "—"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Take profit</span>
-                  <span className="block font-mono text-foreground">
-                    {position.take_profit
-                      ? fmt(position.symbol, Number(position.take_profit))
-                      : "—"}
-                  </span>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-10 w-full"
-                disabled={busy || readOnly}
-                onClick={() => onClose(position.id)}
+            <article key={position.id}>
+              <button
+                type="button"
+                aria-expanded={expandedId === position.id}
+                onClick={() =>
+                  setExpandedId((currentId) => (currentId === position.id ? null : position.id))
+                }
+                className="flex min-h-16 w-full items-center justify-between gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
               >
-                Close position
-              </Button>
+                <span className="min-w-0">
+                  <span className="block font-semibold text-foreground">{position.symbol}</span>
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    Opened {new Date(position.opened_at).toLocaleString()}
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`font-mono text-sm font-semibold ${pnl >= 0 ? "text-positive" : "text-negative"}`}
+                  >
+                    {formatMoney(pnl, currency)}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 text-muted-foreground transition-transform ${expandedId === position.id ? "rotate-180" : ""}`}
+                  />
+                </span>
+              </button>
+              {expandedId === position.id ? (
+                <div className="space-y-3 border-t border-border/70 px-4 pb-4 pt-3">
+                  <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/40 p-3 text-[10px]">
+                    <div>
+                      <span className="text-muted-foreground">Direction / lots</span>
+                      <span
+                        className={`block font-semibold ${position.side === "buy" ? "text-positive" : "text-negative"}`}
+                      >
+                        {position.side.toUpperCase()} {Number(position.lots).toFixed(2)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Entry / current</span>
+                      <span className="block font-mono text-foreground">
+                        {fmt(position.symbol, Number(position.open_price))} →{" "}
+                        {fmt(position.symbol, current)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Stop loss</span>
+                      <span className="block font-mono text-foreground">
+                        {position.stop_loss
+                          ? fmt(position.symbol, Number(position.stop_loss))
+                          : "—"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Take profit</span>
+                      <span className="block font-mono text-foreground">
+                        {position.take_profit
+                          ? fmt(position.symbol, Number(position.take_profit))
+                          : "—"}
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-10 w-full"
+                    disabled={busy || readOnly}
+                    onClick={() => onClose(position.id)}
+                  >
+                    Close position
+                  </Button>
+                </div>
+              ) : null}
             </article>
           );
         })}

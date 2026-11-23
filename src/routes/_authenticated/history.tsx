@@ -1,4 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { fmt } from "@/lib/market";
 import { useAccount } from "@/hooks/use-account";
 import { formatMoney } from "@/lib/account-options";
@@ -19,6 +21,7 @@ export const Route = createFileRoute("/_authenticated/history")({
 });
 
 function History() {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const { data, activeAccount, isPending, error, refetch } = useAccount();
   const navigate = useNavigate();
   const rows = data?.closed ?? [];
@@ -68,40 +71,63 @@ function History() {
         ) : null}
         <div className="divide-y divide-border">
           {rows.map((row) => (
-            <article key={row.id} className="space-y-3 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">{row.symbol}</span>
-                    <span
-                      className={`text-[10px] font-semibold ${row.side === "buy" ? "text-positive" : "text-negative"}`}
-                    >
-                      {row.side.toUpperCase()} {Number(row.lots).toFixed(2)}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">
-                    {row.closed_at ? new Date(row.closed_at).toLocaleString() : "—"}
-                  </p>
-                </div>
-                <span
-                  className={`font-mono text-sm font-semibold ${Number(row.pnl) >= 0 ? "text-positive" : "text-negative"}`}
-                >
-                  {formatMoney(Number(row.pnl), currency)}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/40 p-2 text-[10px]">
-                <div>
-                  <span className="text-muted-foreground">Open</span>
-                  <span className="block font-mono">{fmt(row.symbol, Number(row.open_price))}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Close</span>
-                  <span className="block font-mono">
-                    {fmt(row.symbol, Number(row.close_price))}
+            <article key={row.id}>
+              <button
+                type="button"
+                aria-expanded={expandedId === row.id}
+                onClick={() => setExpandedId((currentId) => (currentId === row.id ? null : row.id))}
+                className="flex min-h-20 w-full items-center justify-between gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+              >
+                <span className="min-w-0">
+                  <span className="block font-semibold text-foreground">{row.symbol}</span>
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    Opened {new Date(row.opened_at).toLocaleString()}
                   </span>
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    Closed {row.closed_at ? new Date(row.closed_at).toLocaleString() : "—"}
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`font-mono text-sm font-semibold ${Number(row.pnl) >= 0 ? "text-positive" : "text-negative"}`}
+                  >
+                    {formatMoney(Number(row.pnl), currency)}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 text-muted-foreground transition-transform ${expandedId === row.id ? "rotate-180" : ""}`}
+                  />
+                </span>
+              </button>
+              {expandedId === row.id ? (
+                <div className="border-t border-border/70 px-4 pb-4 pt-3">
+                  <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/40 p-3 text-[10px]">
+                    <div>
+                      <span className="text-muted-foreground">Direction / lots</span>
+                      <span
+                        className={`block font-semibold ${row.side === "buy" ? "text-positive" : "text-negative"}`}
+                      >
+                        {row.side.toUpperCase()} {Number(row.lots).toFixed(2)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Reason</span>
+                      <span className="block text-foreground">{row.close_reason}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Open price</span>
+                      <span className="block font-mono text-foreground">
+                        {fmt(row.symbol, Number(row.open_price))}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Close price</span>
+                      <span className="block font-mono text-foreground">
+                        {fmt(row.symbol, Number(row.close_price))}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <p className="text-[10px] text-muted-foreground">{row.close_reason}</p>
+              ) : null}
             </article>
           ))}
         </div>

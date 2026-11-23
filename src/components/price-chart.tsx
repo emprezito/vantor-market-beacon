@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import {
-  Camera,
-  ChartCandlestick,
-  ChevronDown,
-  Maximize2,
-  Minimize2,
-  SlidersHorizontal,
-  Star,
-} from "lucide-react";
+import { Camera, ChartCandlestick, Maximize2, Minimize2, SlidersHorizontal } from "lucide-react";
 import {
   CandlestickSeries,
   ColorType,
@@ -157,13 +149,11 @@ export function PriceChart({
   closedPositions,
   indicators,
   indicatorControl,
-  isFavourite = false,
-  onToggleFavourite,
-  onOpenMarketPicker,
   onIntervalChange,
   onLoadOlder,
   hasOlder = false,
   isLoadingOlder = false,
+  terminal = false,
 }: {
   symbol: string;
   quote: MarketQuote;
@@ -174,13 +164,11 @@ export function PriceChart({
   closedPositions: ChartClosedPosition[];
   indicators: ChartIndicators;
   indicatorControl?: ReactNode;
-  isFavourite?: boolean;
-  onToggleFavourite?: () => void;
-  onOpenMarketPicker?: () => void;
   onIntervalChange?: (interval: ChartInterval) => void;
   onLoadOlder?: () => void;
   hasOlder?: boolean;
   isLoadingOlder?: boolean;
+  terminal?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -802,43 +790,31 @@ export function PriceChart({
       className={
         expanded
           ? "fixed inset-0 z-[60] flex h-[100dvh] flex-col bg-background p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:p-4"
-          : undefined
+          : terminal
+            ? "lg:relative lg:h-full lg:min-h-0"
+            : undefined
       }
     >
-      <div className={expanded ? "relative min-h-0 flex-1" : "relative"}>
+      <div
+        className={
+          expanded
+            ? "relative min-h-0 flex-1"
+            : terminal
+              ? "relative lg:h-full lg:min-h-0"
+              : "relative"
+        }
+      >
         <div
           ref={containerRef}
           className={
             expanded
               ? "h-full w-full"
-              : "h-[clamp(360px,58dvh,640px)] w-full sm:h-[680px] xl:h-[calc(100dvh-5rem)] xl:min-h-[640px]"
+              : terminal
+                ? "h-[max(360px,calc(100dvh-15rem))] w-full lg:h-full lg:min-h-0"
+                : "h-[max(360px,calc(100dvh-15rem))] w-full xl:h-[calc(100dvh-5rem)] xl:min-h-[640px]"
           }
         />
         <div className="absolute left-2 top-2 z-20 flex items-center gap-1">
-          <button
-            type="button"
-            aria-label="Choose market"
-            onClick={onOpenMarketPicker}
-            className="flex h-9 max-w-28 items-center gap-1.5 rounded-md border border-border bg-card/90 px-2.5 text-xs font-semibold text-foreground backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <span className="truncate">{symbol}</span>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          </button>
-          <button
-            type="button"
-            aria-label={
-              isFavourite ? `Remove ${symbol} from watchlist` : `Add ${symbol} to watchlist`
-            }
-            aria-pressed={isFavourite}
-            onClick={onToggleFavourite}
-            className={`grid h-9 w-9 place-items-center rounded-md border backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-              isFavourite
-                ? "border-primary/45 bg-primary/15 text-primary"
-                : "border-border bg-card/90 text-muted-foreground"
-            }`}
-          >
-            <Star className="h-4 w-4" fill={isFavourite ? "currentColor" : "none"} />
-          </button>
           <button
             type="button"
             aria-label={showOhlc ? "Hide OHLC details" : "Show OHLC details"}
@@ -1022,7 +998,13 @@ export function PriceChart({
           </button>
         ) : null}
       </div>
-      <div className="mt-1 text-right text-[10px] text-muted-foreground">
+      <div
+        className={
+          terminal
+            ? "mt-1 text-right text-[10px] text-muted-foreground lg:absolute lg:bottom-1 lg:right-2 lg:z-20 lg:mt-0"
+            : "mt-1 text-right text-[10px] text-muted-foreground"
+        }
+      >
         Charts by{" "}
         <a
           href="https://www.tradingview.com"

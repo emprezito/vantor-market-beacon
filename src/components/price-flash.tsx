@@ -29,9 +29,9 @@ export function PriceFlash({
     <span
       data-direction={direction ?? "flat"}
       className={cn(
-        "inline-flex rounded-sm px-1 transition-colors duration-150",
-        direction === "up" && "bg-positive/20 text-positive ring-1 ring-inset ring-positive/30",
-        direction === "down" && "bg-negative/20 text-negative ring-1 ring-inset ring-negative/30",
+        "inline-flex transition-colors duration-150",
+        direction === "up" && "text-positive",
+        direction === "down" && "text-negative",
         className,
       )}
     >

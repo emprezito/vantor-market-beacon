@@ -1,4 +1,10 @@
-import { createFileRoute, redirect, Outlet, useNavigate } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  redirect,
+  Outlet,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -32,6 +38,7 @@ export const Route = createFileRoute("/_authenticated")({
 function Layout() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const { partner } = Route.useRouteContext();
   const { accounts, activeAccount, setActiveAccount, data } = useAccount();
   useMarketCatalog(!partner);
@@ -43,6 +50,7 @@ function Layout() {
     navigate({ to: "/auth", replace: true });
   };
   const selectAccount = (id: string) => setActiveAccount(id);
+  const immersiveTerminal = !partner && location.pathname === "/trade";
 
   useEffect(() => {
     document.documentElement.classList.add("dark", "vantor-terminal");
@@ -50,27 +58,35 @@ function Layout() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background xl:pl-52">
-      <DesktopSidebar
-        accounts={accounts}
-        activeAccount={activeAccount}
-        onSelect={selectAccount}
-        onSignOut={signOut}
-        ordersActive={ordersActive}
-        partner={partner}
-      />
-      <MobileHeader
-        accounts={accounts}
-        activeAccount={activeAccount}
-        onSelect={selectAccount}
-        onSignOut={signOut}
-        ordersActive={ordersActive}
-        partner={partner}
-      />
-      <div className={partner ? "pb-0" : "pb-20 xl:pb-0"}>
+    <div className={`min-h-screen bg-background ${immersiveTerminal ? "" : "xl:pl-52"}`}>
+      {!immersiveTerminal ? (
+        <DesktopSidebar
+          accounts={accounts}
+          activeAccount={activeAccount}
+          onSelect={selectAccount}
+          onSignOut={signOut}
+          ordersActive={ordersActive}
+          partner={partner}
+        />
+      ) : null}
+      <div className={immersiveTerminal ? "lg:hidden" : undefined}>
+        <MobileHeader
+          accounts={accounts}
+          activeAccount={activeAccount}
+          onSelect={selectAccount}
+          onSignOut={signOut}
+          ordersActive={ordersActive}
+          partner={partner}
+        />
+      </div>
+      <div className={partner ? "pb-0" : immersiveTerminal ? "pb-20 lg:pb-0" : "pb-20 xl:pb-0"}>
         <Outlet />
       </div>
-      {!partner && <MobileBottomNav ordersActive={ordersActive} />}
+      {!partner ? (
+        <div className={immersiveTerminal ? "lg:hidden" : undefined}>
+          <MobileBottomNav ordersActive={ordersActive} />
+        </div>
+      ) : null}
     </div>
   );
 }
