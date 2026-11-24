@@ -5,6 +5,13 @@ export const MERIDIAN_DEFAULT_API_BASE_URL = "http://localhost:8000/api/v1";
 export const MERIDIAN_DEFAULT_WS_URL = "ws://localhost:8000/ws/v1/market";
 export const MERIDIAN_QUOTE_STALE_MS = 5_000;
 export const MERIDIAN_STREAM_IDLE_MS = 20_000;
+export const MERIDIAN_TOKEN_REFRESH_LEAD_MS = 60_000;
+
+export function meridianTokenRefreshDelayMs(expiresAt: number, now = Date.now()): number {
+  const ttl = Math.max(1_000, expiresAt - now);
+  if (ttl > MERIDIAN_TOKEN_REFRESH_LEAD_MS + 10_000) return ttl - MERIDIAN_TOKEN_REFRESH_LEAD_MS;
+  return Math.max(1_000, Math.round(ttl * 0.8));
+}
 
 export const MERIDIAN_TIMEFRAMES: Record<ChartInterval, string> = {
   "1min": "M1",

@@ -4,6 +4,7 @@ import { getMeridianWsToken } from "@/lib/realtime.functions";
 import {
   MERIDIAN_STREAM_IDLE_MS,
   marketQuoteFromMeridian,
+  meridianTokenRefreshDelayMs,
   parseMeridianQuote,
   parseMeridianStreamMessage,
 } from "@/lib/meridian";
@@ -22,7 +23,6 @@ export type MeridianStreamStatus =
 const RETRY_MAX_MS = 30_000;
 const HEARTBEAT_MS = 15_000;
 const PONG_TIMEOUT_MS = 5_000;
-const TOKEN_REFRESH_LEAD_MS = 60_000;
 const REFRESH_RETRY_MIN_MS = 5_000;
 const REFRESH_RETRY_MAX_MS = 30_000;
 
@@ -44,12 +44,6 @@ type StreamConnection = {
 function permanentTokenError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : "";
   return /not configured|invalid api key|unauthorized|not active/i.test(message);
-}
-
-function refreshDelayMs(expiresAt: number, now: number): number {
-  const ttl = Math.max(1_000, expiresAt - now);
-  if (ttl > TOKEN_REFRESH_LEAD_MS + 10_000) return ttl - TOKEN_REFRESH_LEAD_MS;
-  return Math.max(1_000, Math.round(ttl * 0.8));
 }
 
 export function useMeridianQuotes(
@@ -237,7 +231,7 @@ export function useMeridianQuotes(
             if (active === connection) void renew();
             else socket.close(1000, "renewal superseded");
           },
-          refreshDelayMs(connection.expiresAt, Date.now()),
+          meridianTokenRefreshDelayMs(connection.expiresAt, Date.now()),
         );
         connection.heartbeat = setInterval(() => sendPing(connection), HEARTBEAT_MS);
         scheduleIdle(connection);

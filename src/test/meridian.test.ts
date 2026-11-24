@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   MERIDIAN_TIMEFRAMES,
+  MERIDIAN_TOKEN_REFRESH_LEAD_MS,
   marketQuoteFromMeridian,
+  meridianTokenRefreshDelayMs,
   parseMeridianQuote,
   parseMeridianStreamMessage,
 } from "@/lib/meridian";
@@ -56,5 +58,18 @@ describe("Meridian protocol", () => {
       parseMeridianStreamMessage({ event: "connected", data: { protocol: "market-data-v1" } }),
     ).toMatchObject({ event: "connected" });
     expect(parseMeridianStreamMessage({ data: {} })).toBeNull();
+  });
+
+  it("renews long-lived stream tokens with an overlap before expiry", () => {
+    const now = Date.UTC(2026, 0, 1);
+    expect(meridianTokenRefreshDelayMs(now + 300_000, now)).toBe(
+      300_000 - MERIDIAN_TOKEN_REFRESH_LEAD_MS,
+    );
+  });
+
+  it("renews short-lived stream tokens at eighty percent of their lifetime", () => {
+    const now = Date.UTC(2026, 0, 1);
+    expect(meridianTokenRefreshDelayMs(now + 40_000, now)).toBe(32_000);
+    expect(meridianTokenRefreshDelayMs(now - 5_000, now)).toBe(1_000);
   });
 });

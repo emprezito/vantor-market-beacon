@@ -1,6 +1,11 @@
 import { isStaleFeedQuote, type MarketQuote } from "@/lib/market-data";
 import { loadQuotes } from "@/lib/market-data.server";
-import { parseMeridianQuote, parseMeridianStreamMessage } from "@/lib/meridian";
+import {
+  meridianTokenRefreshDelayMs,
+  parseMeridianQuote,
+  parseMeridianStreamMessage,
+  type MeridianWsToken,
+} from "@/lib/meridian";
 import {
   meridianProviderSymbols,
   meridianWsUrl,
@@ -23,11 +28,22 @@ import type { CorsContext, TerminalEnv } from "./types";
 const HEARTBEAT_MS = 15_000;
 const PONG_TIMEOUT_MS = 5_000;
 const RECONNECT_MAX_MS = 30_000;
+const REFRESH_RETRY_MIN_MS = 5_000;
+const PENDING_TIMEOUT_MS = 15_000;
 const TICKET_RATE_LIMIT = 30;
 const STREAM_RATE_LIMIT = 30;
 
 type RuntimeWebSocket = WebSocket & {
   accept?: (options?: { allowHalfOpen?: boolean }) => void;
+};
+
+type UpstreamConnection = {
+  socket: RuntimeWebSocket;
+  expiresAt: number;
+  heartbeat: ReturnType<typeof setInterval> | null;
+  pongTimer: ReturnType<typeof setTimeout> | null;
+  tokenTimer: ReturnType<typeof setTimeout> | null;
+  closed: boolean;
 };
 
 type SocketPair = { 0: RuntimeWebSocket; 1: RuntimeWebSocket };
@@ -37,6 +53,7 @@ type UpgradeResponseInit = ResponseInit & { webSocket?: RuntimeWebSocket };
 type SymbolMapping = {
   symbols: string[];
   providerByInternal: Map<string, string>;
+  internalByProvider: Map<string, string>;
 };
 
 const ticketBuckets = new Map<string, number[]>();
@@ -75,7 +92,9 @@ function parseStreamSymbols(url: URL): string[] {
 }
 
 async function resolveSymbols(symbols: string[]): Promise<SymbolMapping> {
-  if (symbols.length === 0) return { symbols: [], providerByInternal: new Map() };
+  if (symbols.length === 0) {
+    return { symbols: [], providerByInternal: new Map(), internalByProvider: new Map() };
+  }
   let subscriptions: Map<string, string>;
   try {
     subscriptions = await meridianProviderSymbols(symbols);
@@ -86,11 +105,11 @@ async function resolveSymbols(symbols: string[]): Promise<SymbolMapping> {
   if (supported.length !== symbols.length) {
     throw new ApiError(400, "unknown_symbol", "Unknown market symbol");
   }
+  const entries = supported.map((symbol) => [symbol, subscriptions.get(symbol)!] as const);
   return {
     symbols: supported,
-    providerByInternal: new Map(
-      supported.map((symbol) => [symbol, subscriptions.get(symbol)!] as const),
-    ),
+    providerByInternal: new Map(entries),
+    internalByProvider: new Map(entries.map(([internal, provider]) => [provider, internal])),
   };
 }
 
@@ -131,19 +150,22 @@ class BrokerStreamSession {
   private readonly serverId: string;
   private desired: Set<string>;
   private providerByInternal: Map<string, string>;
+  private internalByProvider: Map<string, string>;
   private lastQuoteTs = new Map<string, number>();
-  private upstream: RuntimeWebSocket | null = null;
+  private upstream: UpstreamConnection | null = null;
+  private pending: UpstreamConnection | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private tokenTimer: ReturnType<typeof setTimeout> | null = null;
-  private heartbeat: ReturnType<typeof setInterval> | null = null;
-  private pongTimer: ReturnType<typeof setTimeout> | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingTimer: ReturnType<typeof setTimeout> | null = null;
   private staleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastTickAt = 0;
   private attempt = 0;
+  private refreshAttempt = 0;
   private seq = 0;
   private status = "idle";
   private closed = false;
   private connecting = false;
+  private renewing = false;
 
   constructor(
     server: RuntimeWebSocket,
@@ -156,6 +178,7 @@ class BrokerStreamSession {
     this.serverId = serverId;
     this.desired = new Set(mapping.symbols);
     this.providerByInternal = mapping.providerByInternal;
+    this.internalByProvider = mapping.internalByProvider;
   }
 
   start() {
@@ -238,24 +261,7 @@ class BrokerStreamSession {
     try {
       const token = await requestMeridianWsToken();
       if (this.closed) return;
-      const endpoint = new URL(meridianWsUrl());
-      endpoint.searchParams.set("token", token.token);
-      const socket = new WebSocket(endpoint.toString()) as RuntimeWebSocket;
-      this.upstream = socket;
-      this.bindUpstream(socket);
-
-      const expiresAt =
-        token.expires_at > 10_000_000_000 ? token.expires_at : token.expires_at * 1_000;
-      const refreshIn = Math.max(1_000, expiresAt - Date.now() - 5_000);
-      this.tokenTimer = setTimeout(() => {
-        if (this.upstream === socket) {
-          try {
-            socket.close(1000, "stream token refresh");
-          } catch {
-            return;
-          }
-        }
-      }, refreshIn);
+      this.openUpstream(token, false);
     } catch {
       if (this.closed) return;
       this.setStatus("reconnecting");
@@ -265,15 +271,48 @@ class BrokerStreamSession {
     }
   }
 
-  private bindUpstream(socket: RuntimeWebSocket) {
+  private openUpstream(token: MeridianWsToken, replacement: boolean) {
+    const endpoint = new URL(meridianWsUrl());
+    endpoint.searchParams.set("token", token.token);
+    const socket = new WebSocket(endpoint.toString()) as RuntimeWebSocket;
+    const expiresAt =
+      token.expires_at > 10_000_000_000 ? token.expires_at : token.expires_at * 1_000;
+    const connection: UpstreamConnection = {
+      socket,
+      expiresAt,
+      heartbeat: null,
+      pongTimer: null,
+      tokenTimer: null,
+      closed: false,
+    };
+
+    if (replacement) {
+      this.pending = connection;
+      this.pendingTimer = setTimeout(() => {
+        this.pendingTimer = null;
+        if (this.pending !== connection) return;
+        this.closeConnection(connection);
+        this.pending = null;
+        this.scheduleRefreshRetry();
+      }, PENDING_TIMEOUT_MS);
+    } else {
+      this.upstream = connection;
+      this.clearRefreshRetry();
+      this.armTokenRefresh(connection);
+    }
+    this.bindUpstream(connection);
+  }
+
+  private bindUpstream(connection: UpstreamConnection) {
+    const socket = connection.socket;
     socket.addEventListener("message", (event) => {
-      this.handleUpstreamMessage(socket, event);
+      this.handleUpstreamMessage(connection, event);
     });
     socket.addEventListener("close", () => {
-      this.handleUpstreamClose(socket);
+      this.handleUpstreamClose(connection);
     });
     socket.addEventListener("error", () => {
-      this.handleUpstreamClose(socket);
+      this.handleUpstreamClose(connection);
       try {
         socket.close();
       } catch {
@@ -282,19 +321,19 @@ class BrokerStreamSession {
     });
   }
 
-  private startHeartbeat(socket: RuntimeWebSocket) {
-    if (this.heartbeat) clearInterval(this.heartbeat);
-    this.heartbeat = setInterval(() => {
-      if (this.closed || this.upstream !== socket) return;
-      if (!send(socket, { action: "ping" })) {
-        this.handleUpstreamClose(socket);
+  private startHeartbeat(connection: UpstreamConnection) {
+    if (connection.heartbeat) clearInterval(connection.heartbeat);
+    connection.heartbeat = setInterval(() => {
+      if (this.closed || connection.closed || this.upstream !== connection) return;
+      if (!send(connection.socket, { action: "ping" })) {
+        this.handleUpstreamClose(connection);
         return;
       }
-      if (this.pongTimer) clearTimeout(this.pongTimer);
-      this.pongTimer = setTimeout(() => {
-        if (this.closed || this.upstream !== socket) return;
+      if (connection.pongTimer) clearTimeout(connection.pongTimer);
+      connection.pongTimer = setTimeout(() => {
+        if (this.closed || connection.closed || this.upstream !== connection) return;
         try {
-          socket.close();
+          connection.socket.close();
         } catch {
           return;
         }
@@ -302,22 +341,91 @@ class BrokerStreamSession {
     }, HEARTBEAT_MS);
   }
 
-  private clearUpstreamTimers() {
-    if (this.heartbeat) clearInterval(this.heartbeat);
-    if (this.pongTimer) clearTimeout(this.pongTimer);
-    if (this.tokenTimer) clearTimeout(this.tokenTimer);
-    if (this.staleTimer) clearTimeout(this.staleTimer);
-    this.heartbeat = null;
-    this.pongTimer = null;
-    this.tokenTimer = null;
-    this.staleTimer = null;
+  private armTokenRefresh(connection: UpstreamConnection) {
+    if (connection.tokenTimer) clearTimeout(connection.tokenTimer);
+    connection.tokenTimer = setTimeout(
+      () => {
+        if (this.closed || connection.closed || this.upstream !== connection) return;
+        void this.renewUpstream();
+      },
+      meridianTokenRefreshDelayMs(connection.expiresAt, Date.now()),
+    );
   }
 
-  private handleUpstreamMessage(socket: RuntimeWebSocket, event: MessageEvent) {
-    if (this.closed || this.upstream !== socket || typeof event.data !== "string") return;
-    if (this.pongTimer) {
-      clearTimeout(this.pongTimer);
-      this.pongTimer = null;
+  private clearConnectionTimers(connection: UpstreamConnection) {
+    if (connection.heartbeat) clearInterval(connection.heartbeat);
+    if (connection.pongTimer) clearTimeout(connection.pongTimer);
+    if (connection.tokenTimer) clearTimeout(connection.tokenTimer);
+    connection.heartbeat = null;
+    connection.pongTimer = null;
+    connection.tokenTimer = null;
+  }
+
+  private closeConnection(connection: UpstreamConnection | null) {
+    if (!connection || connection.closed) return;
+    this.clearConnectionTimers(connection);
+    connection.closed = true;
+    try {
+      connection.socket.close(1000, "replaced");
+    } catch {
+      // already closed
+    }
+  }
+
+  private clearRefreshRetry() {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
+    this.refreshAttempt = 0;
+  }
+
+  private scheduleRefreshRetry() {
+    if (this.closed || this.refreshTimer || !this.upstream) return;
+    const base = Math.min(RECONNECT_MAX_MS, REFRESH_RETRY_MIN_MS * 2 ** this.refreshAttempt);
+    const delay = base + Math.random() * base * 0.35;
+    this.refreshAttempt += 1;
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      void this.renewUpstream();
+    }, delay);
+  }
+
+  private async renewUpstream() {
+    if (this.closed || this.renewing || !this.upstream || this.pending) return;
+    const current = this.upstream;
+    this.renewing = true;
+    try {
+      const token = await requestMeridianWsToken();
+      if (this.closed || this.upstream !== current || current.closed || this.pending) return;
+      this.openUpstream(token, true);
+    } catch {
+      if (this.closed || this.upstream !== current) return;
+      this.scheduleRefreshRetry();
+    } finally {
+      this.renewing = false;
+    }
+  }
+
+  private promote(connection: UpstreamConnection) {
+    if (this.closed || connection.closed) return;
+    const previous = this.upstream;
+    this.upstream = connection;
+    this.pending = null;
+    if (this.pendingTimer) clearTimeout(this.pendingTimer);
+    this.pendingTimer = null;
+    this.clearRefreshRetry();
+    this.attempt = 0;
+    this.startHeartbeat(connection);
+    this.armTokenRefresh(connection);
+    this.markTick();
+    if (previous && previous !== connection) this.closeConnection(previous);
+  }
+
+  private handleUpstreamMessage(connection: UpstreamConnection, event: MessageEvent) {
+    if (this.closed || connection.closed || typeof event.data !== "string") return;
+    if (this.upstream !== connection && this.pending !== connection) return;
+    if (connection.pongTimer) {
+      clearTimeout(connection.pongTimer);
+      connection.pongTimer = null;
     }
 
     let parsed: unknown;
@@ -330,16 +438,26 @@ class BrokerStreamSession {
     if (!message) return;
 
     if (message.event === "connected") {
-      this.startHeartbeat(socket);
+      if (this.upstream === connection) this.startHeartbeat(connection);
       if (this.providerByInternal.size === 0) {
         this.attempt = 0;
-        this.setStatus("live");
+        if (this.pending === connection) {
+          this.promote(connection);
+        } else {
+          this.setStatus("live");
+        }
       } else {
-        this.sendUpstreamSubscription(socket, "subscribe", [...this.providerByInternal.values()]);
+        this.sendUpstreamSubscription(connection.socket, "subscribe", [
+          ...this.providerByInternal.values(),
+        ]);
       }
       return;
     }
     if (message.event === "subscribed") {
+      if (this.pending === connection) {
+        this.promote(connection);
+        return;
+      }
       this.attempt = 0;
       this.markTick();
       return;
@@ -348,6 +466,14 @@ class BrokerStreamSession {
       return;
     }
     if (message.event === "error") {
+      if (this.pending === connection) {
+        this.closeConnection(connection);
+        this.pending = null;
+        if (this.pendingTimer) clearTimeout(this.pendingTimer);
+        this.pendingTimer = null;
+        this.scheduleRefreshRetry();
+        return;
+      }
       const data =
         typeof message.data === "object" && message.data !== null
           ? (message.data as Record<string, unknown>)
@@ -367,12 +493,11 @@ class BrokerStreamSession {
 
     const tick = parseMeridianQuote(message.data);
     if (!tick) return;
-    const internal = this.providerByInternal.get(tick.symbol);
+    const internal = this.internalByProvider.get(tick.symbol);
     if (!internal) return;
     const timestamp = tick.timestamp_ms ?? Date.now();
-    if (timestamp > (this.lastQuoteTs.get(internal) ?? 0)) {
-      this.lastQuoteTs.set(internal, timestamp);
-    }
+    if (timestamp <= (this.lastQuoteTs.get(internal) ?? 0)) return;
+    this.lastQuoteTs.set(internal, timestamp);
     this.sendFrame({
       type: "tick",
       ...quoteFrame(
@@ -401,11 +526,37 @@ class BrokerStreamSession {
     send(socket, { action, symbols, channels: ["tick"] });
   }
 
-  private handleUpstreamClose(socket: RuntimeWebSocket) {
-    if (this.upstream !== socket) return;
+  private handleUpstreamClose(connection: UpstreamConnection) {
+    if (connection.closed) return;
+    connection.closed = true;
+    this.clearConnectionTimers(connection);
+
+    if (this.pending === connection) {
+      this.pending = null;
+      if (this.pendingTimer) clearTimeout(this.pendingTimer);
+      this.pendingTimer = null;
+      if (!this.closed && this.upstream && !this.upstream.closed) this.scheduleRefreshRetry();
+      return;
+    }
+    if (this.upstream !== connection) return;
+
     this.upstream = null;
-    this.clearUpstreamTimers();
+    this.clearRefreshRetry();
+    if (this.staleTimer) clearTimeout(this.staleTimer);
+    this.staleTimer = null;
     if (this.closed) return;
+
+    const pending = this.pending;
+    this.pending = null;
+    if (this.pendingTimer) clearTimeout(this.pendingTimer);
+    this.pendingTimer = null;
+    if (pending && !pending.closed) {
+      this.upstream = pending;
+      this.startHeartbeat(pending);
+      this.armTokenRefresh(pending);
+      this.setStatus("reconnecting");
+      return;
+    }
     this.setStatus("reconnecting");
     this.scheduleReconnect();
   }
@@ -486,8 +637,14 @@ class BrokerStreamSession {
         const mapping = await resolveSymbols(next);
         this.desired = new Set(mapping.symbols);
         this.providerByInternal = mapping.providerByInternal;
+        this.internalByProvider = mapping.internalByProvider;
         if (this.upstream) {
-          this.sendUpstreamSubscription(this.upstream, "subscribe", [
+          this.sendUpstreamSubscription(this.upstream.socket, "subscribe", [
+            ...mapping.providerByInternal.values(),
+          ]);
+        }
+        if (this.pending) {
+          this.sendUpstreamSubscription(this.pending.socket, "subscribe", [
             ...mapping.providerByInternal.values(),
           ]);
         }
@@ -508,9 +665,13 @@ class BrokerStreamSession {
         .filter((symbol): symbol is string => Boolean(symbol));
       this.desired = new Set(mapping.symbols);
       this.providerByInternal = mapping.providerByInternal;
+      this.internalByProvider = mapping.internalByProvider;
       for (const symbol of removed) this.lastQuoteTs.delete(symbol);
       if (this.upstream) {
-        this.sendUpstreamSubscription(this.upstream, "unsubscribe", providerSymbols);
+        this.sendUpstreamSubscription(this.upstream.socket, "unsubscribe", providerSymbols);
+      }
+      if (this.pending) {
+        this.sendUpstreamSubscription(this.pending.socket, "unsubscribe", providerSymbols);
       }
       this.sendFrame({ type: "unsubscribed", symbols: [...this.desired] });
     } catch (error) {
@@ -539,16 +700,18 @@ class BrokerStreamSession {
     this.closed = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
-    this.clearUpstreamTimers();
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
+    if (this.pendingTimer) clearTimeout(this.pendingTimer);
+    this.pendingTimer = null;
+    if (this.staleTimer) clearTimeout(this.staleTimer);
+    this.staleTimer = null;
     const upstream = this.upstream;
+    const pending = this.pending;
     this.upstream = null;
-    if (upstream) {
-      try {
-        upstream.close(1000, "client closed");
-      } catch {
-        // already closed
-      }
-    }
+    this.pending = null;
+    this.closeConnection(upstream);
+    this.closeConnection(pending);
     try {
       this.server.close(1000, "stream closed");
     } catch {
