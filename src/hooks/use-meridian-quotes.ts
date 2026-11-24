@@ -22,10 +22,34 @@ export type MeridianStreamStatus =
 const RETRY_MAX_MS = 30_000;
 const HEARTBEAT_MS = 15_000;
 const PONG_TIMEOUT_MS = 5_000;
+const TOKEN_REFRESH_LEAD_MS = 60_000;
+const REFRESH_RETRY_MIN_MS = 5_000;
+const REFRESH_RETRY_MAX_MS = 30_000;
+
+type StreamTicket = Awaited<ReturnType<typeof getMeridianWsToken>>;
+
+type StreamConnection = {
+  socket: WebSocket;
+  providerSymbols: string[];
+  providerToInternal: Map<string, string>;
+  expiresAt: number;
+  closed: boolean;
+  promoted: boolean;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  pongTimer: ReturnType<typeof setTimeout> | null;
+  expiryTimer: ReturnType<typeof setTimeout> | null;
+  heartbeat: ReturnType<typeof setInterval> | null;
+};
 
 function permanentTokenError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : "";
   return /not configured|invalid api key|unauthorized|not active/i.test(message);
+}
+
+function refreshDelayMs(expiresAt: number, now: number): number {
+  const ttl = Math.max(1_000, expiresAt - now);
+  if (ttl > TOKEN_REFRESH_LEAD_MS + 10_000) return ttl - TOKEN_REFRESH_LEAD_MS;
+  return Math.max(1_000, Math.round(ttl * 0.8));
 }
 
 export function useMeridianQuotes(
@@ -57,52 +81,68 @@ export function useMeridianQuotes(
     }
 
     let cancelled = false;
-    let socket: WebSocket | null = null;
+    let active: StreamConnection | null = null;
+    let pending: StreamConnection | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
-    let pongTimer: ReturnType<typeof setTimeout> | null = null;
-    let heartbeat: ReturnType<typeof setInterval> | null = null;
-    let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
+    let refreshAttempt = 0;
     let connecting = false;
+    let renewing = false;
     let offline = typeof navigator !== "undefined" && navigator.onLine === false;
 
     const clearTimer = (timer: ReturnType<typeof setTimeout> | null) => {
       if (timer) clearTimeout(timer);
     };
 
-    const clearConnectionTimers = () => {
-      clearTimer(idleTimer);
-      clearTimer(pongTimer);
-      clearTimer(expiryTimer);
-      idleTimer = null;
-      pongTimer = null;
-      expiryTimer = null;
-      if (heartbeat) clearInterval(heartbeat);
-      heartbeat = null;
+    const clearConnectionTimers = (connection: StreamConnection | null) => {
+      if (!connection) return;
+      clearTimer(connection.idleTimer);
+      clearTimer(connection.pongTimer);
+      clearTimer(connection.expiryTimer);
+      if (connection.heartbeat) clearInterval(connection.heartbeat);
+      connection.idleTimer = null;
+      connection.pongTimer = null;
+      connection.expiryTimer = null;
+      connection.heartbeat = null;
     };
 
-    const sendPing = (current: WebSocket) => {
-      if (current.readyState !== WebSocket.OPEN) return;
+    const closeConnection = (
+      connection: StreamConnection | null,
+      code = 1000,
+      reason = "replaced",
+    ) => {
+      if (!connection) return;
+      clearConnectionTimers(connection);
+      connection.closed = true;
       try {
-        current.send(JSON.stringify({ action: "ping" }));
+        connection.socket.close(code, reason);
       } catch {
-        current.close();
         return;
       }
-      clearTimer(pongTimer);
-      pongTimer = setTimeout(() => {
-        if (cancelled || socket !== current) return;
-        current.close();
+    };
+
+    const sendPing = (connection: StreamConnection) => {
+      if (connection.closed || connection.socket.readyState !== WebSocket.OPEN) return;
+      try {
+        connection.socket.send(JSON.stringify({ action: "ping" }));
+      } catch {
+        connection.socket.close();
+        return;
+      }
+      clearTimer(connection.pongTimer);
+      connection.pongTimer = setTimeout(() => {
+        if (connection.closed) return;
+        connection.socket.close();
       }, PONG_TIMEOUT_MS);
     };
 
-    const scheduleIdle = (current: WebSocket) => {
-      clearTimer(idleTimer);
-      idleTimer = setTimeout(() => {
-        if (cancelled || socket !== current) return;
-        setStatus("stale");
-        sendPing(current);
+    const scheduleIdle = (connection: StreamConnection) => {
+      clearTimer(connection.idleTimer);
+      connection.idleTimer = setTimeout(() => {
+        if (connection.closed) return;
+        if (active === connection) setStatus("stale");
+        sendPing(connection);
       }, MERIDIAN_STREAM_IDLE_MS);
     };
 
@@ -117,107 +157,205 @@ export function useMeridianQuotes(
       }, delay);
     };
 
+    const scheduleRefreshRetry = () => {
+      if (cancelled || offline || refreshTimer) return;
+      const base = Math.min(REFRESH_RETRY_MAX_MS, REFRESH_RETRY_MIN_MS * 2 ** refreshAttempt);
+      const delay = base + Math.random() * base * 0.35;
+      refreshAttempt += 1;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void renew();
+      }, delay);
+    };
+
+    async function requestTicket(): Promise<StreamTicket> {
+      return tokenFnRef.current({
+        data: { accountId: accountId!, symbols: requestedKey.split(",") },
+      });
+    }
+
+    function promote(connection: StreamConnection): void {
+      if (cancelled || connection.closed) return;
+      const previous = active;
+      active = connection;
+      pending = null;
+      connection.promoted = true;
+      attempt = 0;
+      refreshAttempt = 0;
+      clearTimer(refreshTimer);
+      refreshTimer = null;
+      setStatus("live");
+      setError(null);
+      if (previous && previous !== connection) closeConnection(previous);
+    }
+
+    async function renew(): Promise<void> {
+      if (cancelled || offline || renewing || !active || pending || active.closed) return;
+      const current = active;
+      renewing = true;
+      try {
+        const ticket = await requestTicket();
+        if (cancelled || offline || active !== current || current.closed || pending) return;
+        openConnection(ticket, true);
+      } catch (tokenError) {
+        if (cancelled || offline || active !== current || current.closed) return;
+        const message = tokenError instanceof Error ? tokenError.message : "Meridian unavailable";
+        setError(message);
+        scheduleRefreshRetry();
+      } finally {
+        renewing = false;
+      }
+    }
+
+    function openConnection(ticket: StreamTicket, replacement: boolean): void {
+      const endpoint = new URL(ticket.wsUrl);
+      endpoint.searchParams.set("token", ticket.token);
+      const socket = new WebSocket(endpoint.toString());
+      const connection: StreamConnection = {
+        socket,
+        providerSymbols: Array.from(new Set(Object.values(ticket.subscriptions))),
+        providerToInternal: new Map(
+          Object.entries(ticket.subscriptions).map(([internal, provider]) => [provider, internal]),
+        ),
+        expiresAt: ticket.expiresAt,
+        closed: false,
+        promoted: false,
+        idleTimer: null,
+        pongTimer: null,
+        expiryTimer: null,
+        heartbeat: null,
+      };
+      if (replacement) pending = connection;
+      else active = connection;
+
+      socket.addEventListener("open", () => {
+        if (cancelled || connection.closed) return;
+        if (active === connection && !connection.promoted) setStatus("connecting");
+        connection.expiryTimer = setTimeout(
+          () => {
+            if (connection.closed) return;
+            if (active === connection) void renew();
+            else socket.close(1000, "renewal superseded");
+          },
+          refreshDelayMs(connection.expiresAt, Date.now()),
+        );
+        connection.heartbeat = setInterval(() => sendPing(connection), HEARTBEAT_MS);
+        scheduleIdle(connection);
+      });
+
+      socket.addEventListener("message", (event) => {
+        if (cancelled || connection.closed || typeof event.data !== "string") return;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        const message = parseMeridianStreamMessage(parsed);
+        if (!message) return;
+        clearTimer(connection.pongTimer);
+        connection.pongTimer = null;
+        scheduleIdle(connection);
+
+        if (message.event === "connected") {
+          socket.send(
+            JSON.stringify({
+              action: "subscribe",
+              symbols: connection.providerSymbols,
+              channels: ["tick"],
+            }),
+          );
+          return;
+        }
+        if (message.event === "subscribed") {
+          if (pending === connection) promote(connection);
+          if (active === connection) {
+            attempt = 0;
+            refreshAttempt = 0;
+            setStatus("live");
+          }
+          return;
+        }
+        if (message.event === "pong") return;
+        if (message.event === "error") {
+          const data =
+            typeof message.data === "object" && message.data !== null
+              ? (message.data as Record<string, unknown>)
+              : {};
+          const text =
+            typeof data["message"] === "string" ? data["message"] : "Meridian stream error";
+          setError(text);
+          if (active === connection) {
+            setStatus(data["code"] === "symbol_not_entitled" ? "error" : "reconnecting");
+          } else if (pending === connection) {
+            closeConnection(connection, 1000, "renewal failed");
+            scheduleRefreshRetry();
+          }
+          return;
+        }
+        if (message.event !== "tick") return;
+        if (active !== connection && pending !== connection) return;
+
+        const tick = parseMeridianQuote(message.data);
+        if (!tick) return;
+        const internal = connection.providerToInternal.get(tick.symbol);
+        if (!internal) return;
+        setQuotes((current) => {
+          const next = marketQuoteFromMeridian(tick, internal);
+          const previous = current[internal];
+          if (previous && next.ts < previous.ts) return current;
+          return { ...current, [internal]: next };
+        });
+        setStatus("live");
+        setError(null);
+      });
+
+      socket.addEventListener("close", (event) => {
+        if (connection.closed) return;
+        connection.closed = true;
+        clearConnectionTimers(connection);
+        if (pending === connection) {
+          pending = null;
+          if (!cancelled && !offline && active && !active.closed) scheduleRefreshRetry();
+          return;
+        }
+        if (active !== connection) return;
+        active = null;
+        clearTimer(refreshTimer);
+        refreshTimer = null;
+        refreshAttempt = 0;
+        if (cancelled) return;
+        if (pending) {
+          active = pending;
+          active.promoted = true;
+          pending = null;
+          setStatus("reconnecting");
+          return;
+        }
+        setStatus(event.code === 1008 ? "unauthorized" : "reconnecting");
+        if (event.code === 1008) setError("Meridian stream authorization expired");
+        scheduleRetry();
+      });
+
+      socket.addEventListener("error", () => {
+        try {
+          socket.close();
+        } catch {
+          return;
+        }
+      });
+    }
+
     async function connect(): Promise<void> {
-      if (cancelled || offline || connecting) return;
+      if (cancelled || offline || connecting || active || pending) return;
       connecting = true;
       setStatus((current) => (current === "idle" ? "connecting" : "reconnecting"));
       setError(null);
 
       try {
-        const ticket = await tokenFnRef.current({
-          data: { accountId: accountId!, symbols: requestedKey.split(",") },
-        });
+        const ticket = await requestTicket();
         if (cancelled || offline) return;
-
-        const internalToProvider = ticket.subscriptions;
-        const providerToInternal = new Map(
-          Object.entries(internalToProvider).map(([internal, provider]) => [provider, internal]),
-        );
-        const providerSymbols = Array.from(new Set(Object.values(internalToProvider)));
-        const endpoint = new URL(ticket.wsUrl);
-        endpoint.searchParams.set("token", ticket.token);
-        const next = new WebSocket(endpoint.toString());
-        socket = next;
-
-        next.addEventListener("open", () => {
-          if (cancelled || socket !== next) return;
-          setStatus("connecting");
-          const closeAt = Math.max(0, ticket.expiresAt - Date.now() - 1_000);
-          expiryTimer = setTimeout(() => {
-            if (!cancelled && socket === next) next.close(1000, "token refresh");
-          }, closeAt);
-          heartbeat = setInterval(() => sendPing(next), HEARTBEAT_MS);
-          scheduleIdle(next);
-        });
-
-        next.addEventListener("message", (event) => {
-          if (cancelled || socket !== next || typeof event.data !== "string") return;
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(event.data);
-          } catch {
-            return;
-          }
-          const message = parseMeridianStreamMessage(parsed);
-          if (!message) return;
-          clearTimer(pongTimer);
-          pongTimer = null;
-          scheduleIdle(next);
-
-          if (message.event === "connected") {
-            next.send(
-              JSON.stringify({ action: "subscribe", symbols: providerSymbols, channels: ["tick"] }),
-            );
-            return;
-          }
-          if (message.event === "subscribed") {
-            attempt = 0;
-            setStatus("live");
-            return;
-          }
-          if (message.event === "pong") return;
-          if (message.event === "error") {
-            const data =
-              typeof message.data === "object" && message.data !== null
-                ? (message.data as Record<string, unknown>)
-                : {};
-            const text =
-              typeof data["message"] === "string" ? data["message"] : "Meridian stream error";
-            setError(text);
-            setStatus(data["code"] === "symbol_not_entitled" ? "error" : "reconnecting");
-            return;
-          }
-          if (message.event !== "tick") return;
-
-          const tick = parseMeridianQuote(message.data);
-          if (!tick) return;
-          const internal = providerToInternal.get(tick.symbol);
-          if (!internal) return;
-          setQuotes((current) => ({
-            ...current,
-            [internal]: marketQuoteFromMeridian(tick, internal),
-          }));
-          setStatus("live");
-          setError(null);
-        });
-
-        next.addEventListener("close", (event) => {
-          if (socket !== next) return;
-          socket = null;
-          clearConnectionTimers();
-          if (cancelled) return;
-          setStatus(event.code === 1008 ? "unauthorized" : "reconnecting");
-          if (event.code === 1008) setError("Meridian stream authorization expired");
-          scheduleRetry();
-        });
-
-        next.addEventListener("error", () => {
-          try {
-            next.close();
-          } catch {
-            return;
-          }
-        });
+        openConnection(ticket, false);
       } catch (tokenError) {
         if (cancelled || offline) return;
         const message = tokenError instanceof Error ? tokenError.message : "Meridian unavailable";
@@ -237,12 +375,12 @@ export function useMeridianQuotes(
       offline = true;
       clearTimer(retryTimer);
       retryTimer = null;
-      clearConnectionTimers();
-      if (socket) {
-        const current = socket;
-        socket = null;
-        current.close();
-      }
+      clearTimer(refreshTimer);
+      refreshTimer = null;
+      const connections = [active, pending];
+      active = null;
+      pending = null;
+      for (const connection of connections) closeConnection(connection);
       setStatus("disconnected");
     };
 
@@ -250,7 +388,8 @@ export function useMeridianQuotes(
       if (cancelled) return;
       offline = false;
       attempt = 0;
-      void connect();
+      refreshAttempt = 0;
+      if (!active && !pending) void connect();
     };
 
     window.addEventListener("offline", goOffline);
@@ -262,8 +401,11 @@ export function useMeridianQuotes(
       window.removeEventListener("offline", goOffline);
       window.removeEventListener("online", goOnline);
       clearTimer(retryTimer);
-      clearConnectionTimers();
-      if (socket) socket.close();
+      clearTimer(refreshTimer);
+      closeConnection(active);
+      closeConnection(pending);
+      active = null;
+      pending = null;
     };
   }, [enabled, accountId, requestedKey]);
 

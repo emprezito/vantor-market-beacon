@@ -64,16 +64,14 @@ describe("useMarketCandles history", () => {
       { time: 100, open: 1, high: 2, low: 0.5, close: 1.5 },
       { time: 200, open: 2, high: 3, low: 1, close: 2.5 },
     ];
-    mocks.candlesFn.mockImplementation(
-      async ({ data }: { data: { before?: number | null } }) => ({
-        symbol: "EURUSD",
-        interval: "5min",
-        candles: data.before == null ? latest : data.before > 100_000 ? older : [],
-        source: "live",
-        feed: "meridian",
-        fetchedAt: 1_800_000_000_000,
-      }),
-    );
+    mocks.candlesFn.mockImplementation(async ({ data }: { data: { before?: number | null } }) => ({
+      symbol: "EURUSD",
+      interval: "5min",
+      candles: data.before == null ? latest : data.before > 100_000 ? older : [],
+      source: "live",
+      feed: "meridian",
+      fetchedAt: 1_800_000_000_000,
+    }));
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
     });
@@ -144,5 +142,20 @@ describe("useMarketQuotes Meridian routing", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.quotes["BTCUSD"]?.mid).toBe(30_000);
     expect(mocks.meridianFn).toHaveBeenLastCalledWith(["BTCUSD"], null);
+  });
+
+  it("batches large REST quote catalogues while limiting realtime subscriptions", async () => {
+    const symbols = Array.from(
+      { length: 205 },
+      (_, index) => `SYM${String(index).padStart(3, "0")}`,
+    );
+    const { result } = setup(symbols, {});
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(mocks.quotesFn).toHaveBeenCalledTimes(3);
+    for (const [request] of mocks.quotesFn.mock.calls) {
+      expect(request.data.symbols.length).toBeLessThanOrEqual(100);
+    }
+    expect(mocks.meridianFn.mock.calls.at(-1)?.[0]).toHaveLength(100);
   });
 });

@@ -112,11 +112,61 @@ function Trade() {
   const [activityTab, setActivityTab] = useState<"positions" | "pending" | "history" | "journal">(
     "positions",
   );
-  const feedSymbols = useMemo(
-    () => [...watchSymbols, symbol, ...(acc?.open ?? []).map((position) => position.symbol)],
-    [watchSymbols, symbol, acc?.open],
+  const watch = useMemo(
+    () =>
+      watchSymbols
+        .map((watchSymbol) => instruments.find((instrument) => instrument.symbol === watchSymbol))
+        .filter((instrument): instrument is (typeof instruments)[number] => instrument != null),
+    [instruments, watchSymbols],
   );
-  const { quotes: liveQuotes } = useMarketQuotes(feedSymbols, activeAccount?.id ?? null);
+  const selectedInstrument = instruments.find((instrument) => instrument.symbol === symbol);
+  const filteredInstruments = useMemo(() => {
+    const query = instrumentQuery.trim().toLowerCase();
+    return instruments.filter(
+      (instrument) =>
+        !query ||
+        instrument.symbol.toLowerCase().includes(query) ||
+        instrument.name.toLowerCase().includes(query),
+    );
+  }, [instrumentQuery, instruments]);
+  const marketSource = useMemo(
+    () =>
+      watchTab === "all"
+        ? instruments
+        : watchTab === "forex"
+          ? instruments.filter((instrument) =>
+              (instrument.assetClass ?? "forex").toLowerCase().startsWith("forex"),
+            )
+          : watch,
+    [instruments, watch, watchTab],
+  );
+  const terminalMarkets = useMemo(() => {
+    const query = instrumentQuery.trim().toLowerCase();
+    return marketSource.filter(
+      (instrument) =>
+        !query ||
+        instrument.symbol.toLowerCase().includes(query) ||
+        instrument.name.toLowerCase().includes(query),
+    );
+  }, [instrumentQuery, marketSource]);
+  const quoteSymbols = useMemo(
+    () => [
+      ...marketSource.map((instrument) => instrument.symbol),
+      symbol,
+      ...(acc?.open ?? []).map((position) => position.symbol),
+    ],
+    [acc?.open, marketSource, symbol],
+  );
+  const realtimeSymbols = useMemo(
+    () => [symbol, ...watchSymbols, ...(acc?.open ?? []).map((position) => position.symbol)],
+    [acc?.open, symbol, watchSymbols],
+  );
+  const { quotes: liveQuotes } = useMarketQuotes(
+    quoteSymbols,
+    activeAccount?.id ?? null,
+    15_000,
+    realtimeSymbols,
+  );
   const { candles, loadOlder, hasOlder, isLoadingOlder } = useMarketCandles(
     symbol,
     timeframe,
@@ -231,36 +281,8 @@ function Trade() {
   const limitValid =
     orderType === "market" ||
     (limitPrice.trim() !== "" && Number.isFinite(Number(limitPrice)) && Number(limitPrice) > 0);
-  const watch = watchSymbols
-    .map((s) => instruments.find((i) => i.symbol === s))
-    .filter((i): i is (typeof instruments)[number] => i != null);
-  const selectedInstrument = instruments.find((instrument) => instrument.symbol === symbol);
   const quoteStep = selectedInstrument?.point ?? 1 / 10 ** (selectedInstrument?.digits ?? 5);
   const spreadPoints = q.ask > q.bid ? (q.ask - q.bid) / quoteStep : 0;
-  const filteredInstruments = instruments.filter((instrument) => {
-    const query = instrumentQuery.trim().toLowerCase();
-    return (
-      !query ||
-      instrument.symbol.toLowerCase().includes(query) ||
-      instrument.name.toLowerCase().includes(query)
-    );
-  });
-  const terminalMarkets = (
-    watchTab === "all"
-      ? instruments
-      : watchTab === "forex"
-        ? instruments.filter((instrument) =>
-            (instrument.assetClass ?? "forex").toLowerCase().startsWith("forex"),
-          )
-        : watch
-  ).filter((instrument) => {
-    const query = instrumentQuery.trim().toLowerCase();
-    return (
-      !query ||
-      instrument.symbol.toLowerCase().includes(query) ||
-      instrument.name.toLowerCase().includes(query)
-    );
-  });
   const freeMargin = equity - used;
   const marginLevel = used > 0 ? (equity / used) * 100 : 0;
   const activeIndicatorCount = Object.values(indicators).filter(Boolean).length;

@@ -5,26 +5,48 @@ import { getMarketCandles, getMarketQuotes } from "@/lib/market.functions";
 import { mergeQuotes, type ChartInterval, type MarketCandle } from "@/lib/market-data";
 import { useMeridianQuotes } from "./use-meridian-quotes";
 
+const QUOTE_BATCH_SIZE = 100;
+
 export function useMarketQuotes(
   symbols: string[],
   accountId: string | null,
   refetchInterval = 5_000,
+  realtimeSymbols: string[] = symbols,
 ) {
   const quotesFn = useServerFn(getMarketQuotes);
   const unique = useMemo(() => Array.from(new Set(symbols)).sort(), [symbols]);
+  const batches = useMemo(
+    () =>
+      Array.from({ length: Math.ceil(unique.length / QUOTE_BATCH_SIZE) }, (_, index) =>
+        unique.slice(index * QUOTE_BATCH_SIZE, (index + 1) * QUOTE_BATCH_SIZE),
+      ),
+    [unique],
+  );
   const key = unique.join(",");
+  const realtimeRequested = useMemo(
+    () => Array.from(new Set(realtimeSymbols)).slice(0, QUOTE_BATCH_SIZE).sort(),
+    [realtimeSymbols],
+  );
 
   const query = useQuery({
     queryKey: ["market-quotes", key, accountId],
-    queryFn: () => quotesFn({ data: { symbols: unique, accountId } }),
-    enabled: unique.length > 0,
+    queryFn: async () => {
+      const results = await Promise.all(
+        batches.map((batch) => quotesFn({ data: { symbols: batch, accountId } })),
+      );
+      return {
+        quotes: Object.assign({}, ...results.map((result) => result.quotes)),
+        fetchedAt: Math.max(0, ...results.map((result) => result.fetchedAt)),
+      };
+    },
+    enabled: batches.length > 0,
     refetchInterval,
     refetchIntervalInBackground: false,
     staleTime: 1_000,
     placeholderData: (previous) => previous,
   });
 
-  const realtime = useMeridianQuotes(unique, accountId);
+  const realtime = useMeridianQuotes(realtimeRequested, accountId);
   const quotes = useMemo(
     () => mergeQuotes(query.data?.quotes, realtime.quotes),
     [query.data?.quotes, realtime.quotes],
