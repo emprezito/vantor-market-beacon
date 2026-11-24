@@ -225,7 +225,7 @@ function Trade() {
   const entriesBlocked = marketClosed || feedBlocked || fallbackBlocked;
   const money = (n: number) => formatMoney(n, currency);
   const input =
-    "mt-1 h-8 w-full rounded-sm border border-input bg-background px-2 font-mono text-xs text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground/60 focus:border-primary focus:ring-1 focus:ring-primary";
+    "mt-1.5 h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-sm text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground/60 focus:border-primary focus:ring-1 focus:ring-primary";
   const mobileInput =
     "mt-1.5 h-12 w-full rounded-md border border-input bg-background px-3 font-mono text-base text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground/60 focus:border-primary focus:ring-1 focus:ring-primary";
   const limitValid =
@@ -303,8 +303,8 @@ function Trade() {
   }
 
   return (
-    <main className="min-h-[calc(100dvh-3.5rem)] overflow-x-clip bg-background pb-20 lg:flex lg:h-screen lg:min-h-0 lg:flex-col lg:overflow-hidden lg:pb-0">
-      <div className="hidden h-10 shrink-0 grid-cols-[200px_minmax(0,1fr)_240px] border-b border-border bg-[oklch(0.105_0.016_255)] text-foreground lg:grid xl:grid-cols-[246px_minmax(0,1fr)_284px]">
+    <main className="vantor-workstation min-h-[calc(100dvh-3.5rem)] overflow-x-clip bg-background pb-20 lg:flex lg:h-screen lg:min-h-0 lg:flex-col lg:overflow-hidden lg:pb-0">
+      <div className="vantor-terminal-bar mx-3 mt-3 hidden h-11 shrink-0 grid-cols-[200px_minmax(0,1fr)_240px] overflow-hidden text-foreground lg:grid xl:grid-cols-[246px_minmax(0,1fr)_284px]">
         <div className="flex items-center gap-2 border-r border-border px-2">
           <button
             type="button"
@@ -324,7 +324,7 @@ function Trade() {
           <button
             type="button"
             onClick={() => setInstrumentPickerOpen(true)}
-            className="flex h-full min-w-44 items-center gap-2 border-r border-border bg-card px-3 text-[11px] font-semibold hover:bg-accent"
+            className="flex h-full min-w-44 items-center gap-2 border-r border-border bg-card px-3 text-xs font-semibold hover:bg-accent"
           >
             {selectedInstrument ? <MarketIdentity instrument={selectedInstrument} compact /> : null}
             {symbol}
@@ -451,8 +451,8 @@ function Trade() {
         </p>
       ) : null}
 
-      <div className="grid bg-border lg:min-h-0 lg:flex-1 lg:grid-cols-[200px_minmax(0,1fr)_240px] lg:gap-px xl:grid-cols-[246px_minmax(0,1fr)_284px]">
-        <aside className="order-3 hidden min-h-0 border-t border-border bg-card lg:order-1 lg:block lg:border-t-0">
+      <div className="grid lg:min-h-0 lg:flex-1 lg:grid-cols-[200px_minmax(0,1fr)_240px] lg:gap-3 lg:p-3 lg:pb-2 xl:grid-cols-[246px_minmax(0,1fr)_284px]">
+        <aside className="vantor-terminal-surface order-3 hidden min-h-0 border-t border-border bg-card lg:order-1 lg:block lg:border-t-0">
           <div className="grid h-full min-h-0 grid-cols-[36px_minmax(0,1fr)]">
             <nav className="flex flex-col items-center gap-1 border-r border-border bg-[oklch(0.12_0.017_255)] py-2">
               {TERMINAL_LINKS.map(({ to, label, icon: Icon }) => (
@@ -469,7 +469,7 @@ function Trade() {
               ))}
             </nav>
             <div className="flex min-h-0 flex-col">
-              <div className="grid grid-cols-3 border-b border-border text-[9px] text-muted-foreground">
+              <div className="grid grid-cols-3 border-b border-border text-[10px] font-medium text-muted-foreground">
                 {(["all", "favourites", "forex"] as const).map((tab) => (
                   <button
                     key={tab}
@@ -489,10 +489,10 @@ function Trade() {
                   value={instrumentQuery}
                   onChange={(event) => setInstrumentQuery(event.target.value)}
                   placeholder="Search markets"
-                  className="h-7 w-full rounded-sm border border-input bg-background pl-7 pr-2 text-[10px] outline-none focus:border-primary"
+                  className="h-8 w-full rounded-lg border border-input bg-background pl-7 pr-2 text-[11px] outline-none focus:border-primary"
                 />
               </label>
-              <div className="grid grid-cols-[minmax(68px,1fr)_42px_42px] border-y border-border px-1 py-1.5 text-[8px] text-muted-foreground">
+              <div className="grid grid-cols-[minmax(68px,1fr)_42px_42px] border-y border-border px-1 py-2 text-[9px] font-medium text-muted-foreground">
                 <span>Symbol</span>
                 <span className="text-right">Bid</span>
                 <span className="text-right">Ask</span>
@@ -509,7 +509,7 @@ function Trade() {
                   return (
                     <div
                       key={instrument.symbol}
-                      className={`group grid h-8 grid-cols-[minmax(68px,1fr)_42px_42px] items-center border-b border-border/60 px-1 text-[8px] ${selected ? "bg-primary/10 shadow-[inset_2px_0_0_var(--color-primary)]" : "hover:bg-accent/50"}`}
+                      className={`group grid h-9 grid-cols-[minmax(68px,1fr)_42px_42px] items-center border-b border-border/45 px-1 text-[9px] ${selected ? "bg-primary/10 shadow-[inset_3px_0_0_var(--color-primary)]" : "hover:bg-accent/50"}`}
                     >
                       <button
                         type="button"
@@ -558,7 +558,7 @@ function Trade() {
           </div>
         </aside>
 
-        <section className="order-1 min-w-0 bg-background lg:order-2 lg:min-h-0">
+        <section className="vantor-terminal-surface order-1 min-w-0 bg-background lg:order-2 lg:min-h-0">
           <Sheet open={instrumentPickerOpen} onOpenChange={setInstrumentPickerOpen}>
             <SheetContent
               side="bottom"
@@ -720,8 +720,8 @@ function Trade() {
           />
         </section>
 
-        <section className="order-2 hidden min-h-0 overflow-y-auto border-y border-border bg-card lg:order-3 lg:block lg:border-y-0">
-          <div className="grid h-9 grid-cols-2 border-b border-border text-[9px] font-semibold">
+        <section className="vantor-terminal-surface order-2 hidden min-h-0 overflow-y-auto border-y border-border bg-card lg:order-3 lg:block lg:border-y-0">
+          <div className="grid h-10 grid-cols-2 border-b border-border text-[10px] font-semibold">
             <button type="button" className="border-b border-primary bg-accent text-foreground">
               New order
             </button>
@@ -748,15 +748,15 @@ function Trade() {
               <ChevronDown className="h-3 w-3 text-muted-foreground" />
             </button>
             <div className="mt-2 flex items-center justify-between gap-2">
-              <span className="text-[9px] text-muted-foreground">Type</span>
-              <div className="grid grid-cols-2 gap-0.5 rounded-sm border border-border bg-background p-0.5 text-[9px]">
+              <span className="text-[10px] font-medium text-muted-foreground">Type</span>
+              <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-background p-1 text-[10px]">
                 {(["market", "limit"] as const).map((type) => (
                   <button
                     key={type}
                     type="button"
                     aria-pressed={orderType === type}
                     onClick={() => chooseType(type)}
-                    className={`h-6 rounded-sm px-2.5 capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${orderType === type ? "bg-accent font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    className={`h-7 rounded-lg px-2.5 capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${orderType === type ? "bg-accent font-semibold text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     {type}
                   </button>
@@ -766,22 +766,22 @@ function Trade() {
           </div>
 
           <div className="grid grid-cols-2 border-b border-border">
-            <div className="border-r border-border px-3 py-2">
-              <div className="text-[9px] font-medium text-negative">Sell</div>
-              <div className="font-mono text-sm font-semibold text-foreground">
+            <div className="border-r border-border px-3 py-2.5">
+              <div className="text-[10px] font-semibold text-negative">Sell</div>
+              <div className="font-mono text-base font-semibold text-foreground">
                 <PriceFlash value={q.bid}>{fmt(symbol, q.bid)}</PriceFlash>
               </div>
             </div>
-            <div className="px-3 py-2 text-right">
-              <div className="text-[9px] font-medium text-positive">Buy</div>
-              <div className="font-mono text-sm font-semibold text-foreground">
+            <div className="px-3 py-2.5 text-right">
+              <div className="text-[10px] font-semibold text-positive">Buy</div>
+              <div className="font-mono text-base font-semibold text-foreground">
                 <PriceFlash value={q.ask}>{fmt(symbol, q.ask)}</PriceFlash>
               </div>
             </div>
           </div>
 
           <div className="space-y-2.5 p-3">
-            <label className="block text-[11px] font-medium text-muted-foreground">
+            <label className="block text-xs font-medium text-muted-foreground">
               Volume (lots)
               <input
                 className={input}
@@ -793,7 +793,7 @@ function Trade() {
               />
             </label>
             {orderType === "limit" ? (
-              <label className="block text-[11px] font-medium text-muted-foreground">
+              <label className="block text-xs font-medium text-muted-foreground">
                 Limit price
                 <input
                   className={input}
@@ -807,7 +807,7 @@ function Trade() {
               </label>
             ) : null}
             <div className="grid grid-cols-2 gap-2">
-              <label className="block text-[11px] font-medium text-muted-foreground">
+              <label className="block text-xs font-medium text-muted-foreground">
                 Stop loss
                 <input
                   className={input}
@@ -818,7 +818,7 @@ function Trade() {
                   placeholder="Price"
                 />
               </label>
-              <label className="block text-[11px] font-medium text-muted-foreground">
+              <label className="block text-xs font-medium text-muted-foreground">
                 Take profit
                 <input
                   className={input}
@@ -895,8 +895,8 @@ function Trade() {
         </section>
       </div>
 
-      <section className="hidden h-[clamp(132px,24dvh,190px)] shrink-0 border-t border-border bg-card lg:block">
-        <div className="flex h-8 items-end gap-1 border-b border-border px-2 text-[9px]">
+      <section className="vantor-terminal-surface mx-3 mb-2 hidden h-[clamp(132px,24dvh,190px)] shrink-0 border-t border-border bg-card lg:block">
+        <div className="flex h-9 items-end gap-1 border-b border-border px-2 text-[10px] font-medium">
           {(
             [
               ["positions", "Open orders", positions.length],
@@ -914,17 +914,17 @@ function Trade() {
             >
               {label}
               {count > 0 ? (
-                <span className="ml-1.5 rounded-full bg-accent px-1.5 font-mono text-[8px]">
+                <span className="ml-1.5 rounded-full bg-accent px-1.5 font-mono text-[9px]">
                   {count}
                 </span>
               ) : null}
             </button>
           ))}
         </div>
-        <div className="h-[calc(100%-2rem)] overflow-auto">
+        <div className="h-[calc(100%-2.25rem)] overflow-auto">
           {activityTab === "positions" ? (
-            <table className="w-full min-w-[980px] text-[9px]">
-              <thead className="sticky top-0 bg-muted text-left text-[8px] text-muted-foreground">
+            <table className="w-full min-w-[980px] text-[10px]">
+              <thead className="sticky top-0 bg-muted text-left text-[9px] text-muted-foreground">
                 <tr>
                   {[
                     "Order",
@@ -1005,7 +1005,7 @@ function Trade() {
                           type="button"
                           disabled={readOnly || closePosition.isPending}
                           onClick={() => closePosition.mutate(position.id)}
-                          className="rounded-sm border border-negative/40 px-2 py-1 text-[8px] text-negative hover:bg-negative/10 disabled:opacity-40"
+                          className="rounded-lg border border-negative/40 px-2.5 py-1 text-[9px] text-negative hover:bg-negative/10 disabled:opacity-40"
                         >
                           Close
                         </button>
@@ -1018,8 +1018,8 @@ function Trade() {
           ) : null}
 
           {activityTab === "pending" ? (
-            <table className="w-full min-w-[900px] text-[9px]">
-              <thead className="sticky top-0 bg-muted text-left text-[8px] text-muted-foreground">
+            <table className="w-full min-w-[900px] text-[10px]">
+              <thead className="sticky top-0 bg-muted text-left text-[9px] text-muted-foreground">
                 <tr>
                   {["Order", "Placed", "Side", "Volume", "Symbol", "Limit", "SL", "TP", ""].map(
                     (heading) => (
@@ -1067,7 +1067,7 @@ function Trade() {
                         type="button"
                         disabled={readOnly || cancelOrder.isPending}
                         onClick={() => cancelOrder.mutate(order.id)}
-                        className="rounded-sm border border-border px-2 py-1 text-[8px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                        className="rounded-lg border border-border px-2.5 py-1 text-[9px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
                       >
                         Cancel
                       </button>
@@ -1079,8 +1079,8 @@ function Trade() {
           ) : null}
 
           {activityTab === "history" ? (
-            <table className="w-full min-w-[900px] text-[9px]">
-              <thead className="sticky top-0 bg-muted text-left text-[8px] text-muted-foreground">
+            <table className="w-full min-w-[900px] text-[10px]">
+              <thead className="sticky top-0 bg-muted text-left text-[9px] text-muted-foreground">
                 <tr>
                   {["Closed", "Side", "Volume", "Symbol", "Open", "Close", "Reason", "Profit"].map(
                     (heading) => (
@@ -1130,14 +1130,14 @@ function Trade() {
           ) : null}
 
           {activityTab === "journal" ? (
-            <div className="p-8 text-center text-[9px] text-muted-foreground">
+            <div className="p-8 text-center text-[10px] text-muted-foreground">
               Session journal events are not persisted yet.
             </div>
           ) : null}
         </div>
       </section>
 
-      <footer className="hidden h-6 shrink-0 items-center gap-6 overflow-x-auto whitespace-nowrap border-t border-border bg-[oklch(0.105_0.016_255)] px-3 font-mono text-[8px] text-muted-foreground lg:flex">
+      <footer className="vantor-terminal-bar mx-3 mb-3 hidden h-7 shrink-0 items-center gap-6 overflow-x-auto whitespace-nowrap px-3 font-mono text-[9px] text-muted-foreground lg:flex">
         <span>
           Balance: <strong className="text-foreground">{money(balance)}</strong>
         </span>
