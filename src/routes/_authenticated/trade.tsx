@@ -235,6 +235,8 @@ function Trade() {
     .map((s) => instruments.find((i) => i.symbol === s))
     .filter((i): i is (typeof instruments)[number] => i != null);
   const selectedInstrument = instruments.find((instrument) => instrument.symbol === symbol);
+  const quoteStep = selectedInstrument?.point ?? 1 / 10 ** (selectedInstrument?.digits ?? 5);
+  const spreadPoints = q.ask > q.bid ? (q.ask - q.bid) / quoteStep : 0;
   const filteredInstruments = instruments.filter((instrument) => {
     const query = instrumentQuery.trim().toLowerCase();
     return (
@@ -391,9 +393,9 @@ function Trade() {
             >
               <span className="flex w-full items-center gap-1.5 text-xs font-semibold">
                 <span className="truncate">{symbol}</span>
-                <PriceFlash value={q.mid} className="ml-auto font-mono text-[10px]">
-                  {fmt(symbol, q.mid)}
-                </PriceFlash>
+                <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+                  Spr {spreadPoints.toFixed(1)}
+                </span>
                 <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               </span>
               <span className="mt-0.5 flex gap-1.5 whitespace-nowrap font-mono text-[8px] text-muted-foreground">

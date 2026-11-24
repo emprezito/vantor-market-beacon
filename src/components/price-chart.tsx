@@ -185,6 +185,8 @@ export function PriceChart({
   const volumePaneRef = useRef<IPaneApi<Time> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const bidLineRef = useRef<IPriceLine | null>(null);
+  const askLineRef = useRef<IPriceLine | null>(null);
   const barsRef = useRef<MarketCandle[]>([]);
   const fittedRef = useRef(false);
   const lastIntervalRef = useRef<ChartInterval | null>(null);
@@ -300,6 +302,8 @@ export function PriceChart({
       wickUpColor: "#35c98b",
       wickDownColor: "#f05d67",
       borderVisible: false,
+      lastValueVisible: false,
+      priceLineVisible: false,
       priceFormat: { type: "price", precision: digits, minMove: 1 / 10 ** digits },
     });
     const markers = createSeriesMarkers(series, []);
@@ -318,6 +322,8 @@ export function PriceChart({
     volumeRef.current = null;
     volumePaneRef.current = null;
     priceLinesRef.current = [];
+    bidLineRef.current = null;
+    askLineRef.current = null;
     barsRef.current = [];
     fittedRef.current = false;
     lastIntervalRef.current = null;
@@ -376,6 +382,8 @@ export function PriceChart({
       volumePaneRef.current = null;
       markersRef.current = null;
       priceLinesRef.current = [];
+      bidLineRef.current = null;
+      askLineRef.current = null;
       barsRef.current = [];
       fittedRef.current = false;
       lastIntervalRef.current = null;
@@ -694,6 +702,45 @@ export function PriceChart({
   }, [candles, interval, quote, symbol]);
 
   useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+
+    if (quote.feedFallback || !(quote.bid > 0) || !(quote.ask > 0)) {
+      if (bidLineRef.current) series.removePriceLine(bidLineRef.current);
+      if (askLineRef.current) series.removePriceLine(askLineRef.current);
+      bidLineRef.current = null;
+      askLineRef.current = null;
+      return;
+    }
+
+    if (bidLineRef.current) {
+      bidLineRef.current.applyOptions({ price: quote.bid });
+    } else {
+      bidLineRef.current = series.createPriceLine({
+        price: quote.bid,
+        color: "#35c98b",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "BID",
+      });
+    }
+
+    if (askLineRef.current) {
+      askLineRef.current.applyOptions({ price: quote.ask });
+    } else {
+      askLineRef.current = series.createPriceLine({
+        price: quote.ask,
+        color: "#f05d67",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "ASK",
+      });
+    }
+  }, [quote.ask, quote.bid, quote.feedFallback, symbol]);
+
+  useEffect(() => {
     const chart = chartRef.current;
     const series = seriesRef.current;
     if (!chart || !series) return;
@@ -778,6 +825,9 @@ export function PriceChart({
   };
   const change = display ? display.close - display.open : 0;
   const changePct = display && display.open !== 0 ? (change / display.open) * 100 : 0;
+  const instrument = getInstrument(symbol);
+  const quoteStep = instrument.point ?? 1 / 10 ** instrument.digits;
+  const spreadPoints = quote.ask > quote.bid ? (quote.ask - quote.bid) / quoteStep : 0;
   const control = (active: boolean) =>
     `grid h-7 min-w-7 place-items-center rounded border px-1.5 text-[9px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
       active
@@ -841,6 +891,11 @@ export function PriceChart({
             ))}
           </select>
           {indicatorControl}
+          <div className="hidden h-9 items-center gap-2 rounded-md border border-border bg-card/90 px-2 font-mono text-[9px] backdrop-blur xl:flex">
+            <span className="text-positive">BID {fmt(symbol, quote.bid)}</span>
+            <span className="text-negative">ASK {fmt(symbol, quote.ask)}</span>
+            <span className="text-muted-foreground">SPR {spreadPoints.toFixed(1)} pts</span>
+          </div>
         </div>
         {showOhlc ? (
           <div className="pointer-events-none absolute left-2 top-12 z-10 max-w-[calc(100%-1rem)] rounded border border-border bg-card/90 px-2.5 py-2 text-[10px] leading-tight backdrop-blur sm:max-w-[calc(100%-14rem)]">

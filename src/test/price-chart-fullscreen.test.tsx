@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => {
   const makeSeries = () => ({
     setData: vi.fn(),
     update: vi.fn(),
-    createPriceLine: vi.fn(() => ({})),
+    createPriceLine: vi.fn(() => ({ applyOptions: vi.fn() })),
     removePriceLine: vi.fn(),
     priceScale: vi.fn(() => ({ applyOptions: vi.fn() })),
   });
@@ -42,8 +42,7 @@ const mocks = vi.hoisted(() => {
     },
     markers: { setMarkers: vi.fn() },
     timeScale,
-    emitVisibleRange: (range: { from: number; to: number } | null) =>
-      visibleRangeHandler?.(range),
+    emitVisibleRange: (range: { from: number; to: number } | null) => visibleRangeHandler?.(range),
   };
 });
 
@@ -92,6 +91,18 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
 describe("price chart fullscreen", () => {
+  it("shows separate bid and ask price lines", () => {
+    renderChart();
+    const series = mocks.chart.addSeries.mock.results[0]?.value;
+
+    expect(series.createPriceLine).toHaveBeenCalledWith(
+      expect.objectContaining({ price: quote.bid, title: "BID", axisLabelVisible: true }),
+    );
+    expect(series.createPriceLine).toHaveBeenCalledWith(
+      expect.objectContaining({ price: quote.ask, title: "ASK", axisLabelVisible: true }),
+    );
+  });
+
   it("keeps OHLC details collapsed until requested", () => {
     renderChart();
     expect(screen.queryByText("Loading candles…")).not.toBeInTheDocument();
