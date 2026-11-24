@@ -46,6 +46,7 @@ import { useMarketCatalog } from "@/hooks/use-market-catalog";
 import { useWatchlist } from "@/hooks/use-watchlist";
 import { formatMoney } from "@/lib/account-options";
 import { Button } from "@/components/ui/button";
+import { MarketIdentity } from "@/components/market-identity";
 import { PriceChart } from "@/components/price-chart";
 import { PriceFlash } from "@/components/price-flash";
 import {
@@ -233,6 +234,7 @@ function Trade() {
   const watch = watchSymbols
     .map((s) => instruments.find((i) => i.symbol === s))
     .filter((i): i is (typeof instruments)[number] => i != null);
+  const selectedInstrument = instruments.find((instrument) => instrument.symbol === symbol);
   const filteredInstruments = instruments.filter((instrument) => {
     const query = instrumentQuery.trim().toLowerCase();
     return (
@@ -324,6 +326,7 @@ function Trade() {
             onClick={() => setInstrumentPickerOpen(true)}
             className="flex h-full min-w-44 items-center gap-2 border-r border-border bg-card px-3 text-[11px] font-semibold hover:bg-accent"
           >
+            {selectedInstrument ? <MarketIdentity instrument={selectedInstrument} compact /> : null}
             {symbol}
             <span className="font-mono text-[10px] text-muted-foreground">{timeframe}</span>
             <ChevronDown className="ml-auto h-3 w-3 text-muted-foreground" />
@@ -489,7 +492,7 @@ function Trade() {
                   className="h-7 w-full rounded-sm border border-input bg-background pl-7 pr-2 text-[10px] outline-none focus:border-primary"
                 />
               </label>
-              <div className="grid grid-cols-[1fr_58px_58px] border-y border-border px-2 py-1.5 text-[8px] text-muted-foreground">
+              <div className="grid grid-cols-[minmax(68px,1fr)_42px_42px] border-y border-border px-1 py-1.5 text-[8px] text-muted-foreground">
                 <span>Symbol</span>
                 <span className="text-right">Bid</span>
                 <span className="text-right">Ask</span>
@@ -503,18 +506,17 @@ function Trade() {
                 {terminalMarkets.map((instrument) => {
                   const marketQuote = quoteFor(quotes, instrument.symbol, now);
                   const selected = symbol === instrument.symbol;
-                  const rising = Number(marketQuote.change ?? 0) >= 0;
                   return (
                     <div
                       key={instrument.symbol}
-                      className={`group grid h-8 grid-cols-[1fr_58px_58px] items-center border-b border-border/60 px-2 text-[9px] ${selected ? "bg-primary/10 shadow-[inset_2px_0_0_var(--color-primary)]" : "hover:bg-accent/50"}`}
+                      className={`group grid h-8 grid-cols-[minmax(68px,1fr)_42px_42px] items-center border-b border-border/60 px-1 text-[8px] ${selected ? "bg-primary/10 shadow-[inset_2px_0_0_var(--color-primary)]" : "hover:bg-accent/50"}`}
                     >
                       <button
                         type="button"
                         onClick={() => selectSymbol(instrument.symbol)}
                         className="flex min-w-0 items-center gap-1 text-left font-semibold focus-visible:outline-none"
                       >
-                        <span className={rising ? "text-positive" : "text-negative"}>▪</span>
+                        <MarketIdentity instrument={instrument} compact />
                         <span className="truncate">{instrument.symbol}</span>
                       </button>
                       <button
@@ -592,12 +594,15 @@ function Trade() {
                           onClick={() => selectSymbol(instrument.symbol)}
                           className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2 text-left"
                         >
-                          <span className="min-w-0">
-                            <span className="block text-sm font-semibold text-foreground">
-                              {instrument.symbol}
-                            </span>
-                            <span className="block truncate text-[10px] text-muted-foreground">
-                              {instrument.name}
+                          <span className="flex min-w-0 items-center gap-2">
+                            <MarketIdentity instrument={instrument} compact />
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-foreground">
+                                {instrument.symbol}
+                              </span>
+                              <span className="block truncate text-[10px] text-muted-foreground">
+                                {instrument.name}
+                              </span>
                             </span>
                           </span>
                           <span className="shrink-0 text-right font-mono text-xs">
@@ -733,9 +738,7 @@ function Trade() {
               onClick={() => setInstrumentPickerOpen(true)}
               className="flex w-full items-center gap-2 rounded-sm border border-border bg-background p-2 text-left hover:bg-accent"
             >
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-info/15 text-[10px] font-bold text-info">
-                {symbol.slice(0, 2)}
-              </span>
+              {selectedInstrument ? <MarketIdentity instrument={selectedInstrument} /> : null}
               <span className="min-w-0 flex-1">
                 <span className="block text-xs font-semibold">{symbol}</span>
                 <span className="block truncate text-[8px] text-muted-foreground">
