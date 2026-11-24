@@ -306,7 +306,7 @@ function Trade() {
 
   return (
     <main className="vantor-workstation min-h-[calc(100dvh-3.5rem)] overflow-x-clip bg-background pb-20 lg:flex lg:h-screen lg:min-h-0 lg:flex-col lg:overflow-hidden lg:pb-0">
-      <div className="vantor-terminal-bar mx-3 mt-3 hidden h-11 shrink-0 grid-cols-[200px_minmax(0,1fr)_240px] overflow-hidden text-foreground lg:grid xl:grid-cols-[246px_minmax(0,1fr)_284px]">
+      <div className="vantor-terminal-bar mx-3 mt-3 hidden h-11 shrink-0 grid-cols-[230px_minmax(0,1fr)_260px] overflow-hidden text-foreground lg:grid xl:grid-cols-[270px_minmax(0,1fr)_300px]">
         <div className="flex items-center gap-2 border-r border-border px-2">
           <button
             type="button"
@@ -453,7 +453,7 @@ function Trade() {
         </p>
       ) : null}
 
-      <div className="grid lg:min-h-0 lg:flex-1 lg:grid-cols-[200px_minmax(0,1fr)_240px] lg:gap-3 lg:p-3 lg:pb-2 xl:grid-cols-[246px_minmax(0,1fr)_284px]">
+      <div className="grid lg:min-h-0 lg:flex-1 lg:grid-cols-[230px_minmax(0,1fr)_260px] lg:gap-3 lg:p-3 lg:pb-2 xl:grid-cols-[270px_minmax(0,1fr)_300px]">
         <aside className="vantor-terminal-surface order-3 hidden min-h-0 border-t border-border bg-card lg:order-1 lg:block lg:border-t-0">
           <div className="grid h-full min-h-0 grid-cols-[36px_minmax(0,1fr)]">
             <nav className="flex flex-col items-center gap-1 border-r border-border bg-[oklch(0.12_0.017_255)] py-2">
@@ -494,7 +494,7 @@ function Trade() {
                   className="h-8 w-full rounded-lg border border-input bg-background pl-7 pr-2 text-[11px] outline-none focus:border-primary"
                 />
               </label>
-              <div className="grid grid-cols-[minmax(68px,1fr)_42px_42px] border-y border-border px-1 py-2 text-[9px] font-medium text-muted-foreground">
+              <div className="grid grid-cols-[minmax(52px,1fr)_64px_64px] border-y border-border px-1 py-2 text-[9px] font-medium text-muted-foreground">
                 <span>Symbol</span>
                 <span className="text-right">Bid</span>
                 <span className="text-right">Ask</span>
@@ -511,40 +511,21 @@ function Trade() {
                   return (
                     <div
                       key={instrument.symbol}
-                      className={`group grid h-9 grid-cols-[minmax(68px,1fr)_42px_42px] items-center border-b border-border/45 px-1 text-[9px] ${selected ? "bg-primary/10 shadow-[inset_3px_0_0_var(--color-primary)]" : "hover:bg-accent/50"}`}
+                      className={`group grid h-9 grid-cols-[minmax(52px,1fr)_64px_64px] items-center border-b border-border/45 px-1 text-[9px] ${selected ? "bg-primary/10 shadow-[inset_3px_0_0_var(--color-primary)]" : "hover:bg-accent/50"}`}
                     >
-                      <button
-                        type="button"
-                        onClick={() => selectSymbol(instrument.symbol)}
-                        className="flex min-w-0 items-center gap-1 text-left font-semibold focus-visible:outline-none"
-                      >
-                        <MarketIdentity instrument={instrument} compact />
-                        <span className="truncate">{instrument.symbol}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => selectSymbol(instrument.symbol)}
-                        className="text-right font-mono text-foreground focus-visible:outline-none"
-                      >
-                        <PriceFlash value={marketQuote.bid}>
-                          {fmt(instrument.symbol, marketQuote.bid)}
-                        </PriceFlash>
-                      </button>
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex min-w-0 items-center gap-1 pr-1">
                         <button
                           type="button"
                           onClick={() => selectSymbol(instrument.symbol)}
-                          className="font-mono text-foreground focus-visible:outline-none"
+                          className="min-w-0 flex-1 truncate text-left font-semibold focus-visible:outline-none"
                         >
-                          <PriceFlash value={marketQuote.ask}>
-                            {fmt(instrument.symbol, marketQuote.ask)}
-                          </PriceFlash>
+                          {instrument.symbol}
                         </button>
                         <button
                           type="button"
                           onClick={() => toggle(instrument.symbol)}
                           aria-label={`${isFavourite(instrument.symbol) ? "Remove" : "Add"} ${instrument.symbol} ${isFavourite(instrument.symbol) ? "from" : "to"} favourites`}
-                          className="hidden text-primary group-hover:block focus-visible:block"
+                          className="shrink-0 text-primary opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                         >
                           <Star
                             className="h-2.5 w-2.5"
@@ -552,6 +533,24 @@ function Trade() {
                           />
                         </button>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => selectSymbol(instrument.symbol)}
+                        className="w-full whitespace-nowrap text-right font-mono text-foreground focus-visible:outline-none"
+                      >
+                        <PriceFlash value={marketQuote.bid} className="w-full justify-end">
+                          {fmt(instrument.symbol, marketQuote.bid)}
+                        </PriceFlash>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selectSymbol(instrument.symbol)}
+                        className="w-full whitespace-nowrap text-right font-mono text-foreground focus-visible:outline-none"
+                      >
+                        <PriceFlash value={marketQuote.ask} className="w-full justify-end">
+                          {fmt(instrument.symbol, marketQuote.ask)}
+                        </PriceFlash>
+                      </button>
                     </div>
                   );
                 })}
@@ -767,21 +766,6 @@ function Trade() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 border-b border-border">
-            <div className="border-r border-border px-3 py-2.5">
-              <div className="text-[10px] font-semibold text-negative">Sell</div>
-              <div className="font-mono text-base font-semibold text-foreground">
-                <PriceFlash value={q.bid}>{fmt(symbol, q.bid)}</PriceFlash>
-              </div>
-            </div>
-            <div className="px-3 py-2.5 text-right">
-              <div className="text-[10px] font-semibold text-positive">Buy</div>
-              <div className="font-mono text-base font-semibold text-foreground">
-                <PriceFlash value={q.ask}>{fmt(symbol, q.ask)}</PriceFlash>
-              </div>
-            </div>
-          </div>
-
           <div className="space-y-2.5 p-3">
             <label className="block text-xs font-medium text-muted-foreground">
               Volume (lots)
@@ -832,6 +816,34 @@ function Trade() {
                 />
               </label>
             </div>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <Button
+                variant="negative"
+                disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
+                onClick={() => place.mutate("sell")}
+                className="h-14 flex-col gap-0.5 rounded-xl shadow-lg shadow-negative/15"
+              >
+                <span className="text-sm font-bold">
+                  {orderType === "limit" ? "Sell limit" : "Sell"}
+                </span>
+                <span className="font-mono text-sm font-semibold">
+                  {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.bid : q.bid)}
+                </span>
+              </Button>
+              <Button
+                variant="positive"
+                disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
+                onClick={() => place.mutate("buy")}
+                className="h-14 flex-col gap-0.5 rounded-xl shadow-lg shadow-positive/15"
+              >
+                <span className="text-sm font-bold">
+                  {orderType === "limit" ? "Buy limit" : "Buy"}
+                </span>
+                <span className="font-mono text-sm font-semibold">
+                  {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.ask : q.ask)}
+                </span>
+              </Button>
+            </div>
             {orderType === "limit" ? (
               <p className="text-[10px] leading-relaxed text-muted-foreground">
                 Buy limits fill at or below ask; sell limits fill at or above bid.
@@ -865,34 +877,6 @@ function Trade() {
                 Live pricing is unavailable. New orders are paused.
               </p>
             ) : null}
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <Button
-                variant="negative"
-                disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
-                onClick={() => place.mutate("sell")}
-                className="h-12 flex-col gap-0.5 rounded-sm"
-              >
-                <span>{orderType === "limit" ? "Sell limit" : "Sell"}</span>
-                <span className="font-mono text-[10px] font-medium opacity-85">
-                  <PriceFlash value={q.bid}>
-                    {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.bid : q.bid)}
-                  </PriceFlash>
-                </span>
-              </Button>
-              <Button
-                variant="positive"
-                disabled={place.isPending || readOnly || !limitValid || entriesBlocked}
-                onClick={() => place.mutate("buy")}
-                className="h-12 flex-col gap-0.5 rounded-sm"
-              >
-                <span>{orderType === "limit" ? "Buy limit" : "Buy"}</span>
-                <span className="font-mono text-[10px] font-medium opacity-85">
-                  <PriceFlash value={q.ask}>
-                    {fmt(symbol, orderType === "limit" ? Number(limitPrice) || q.ask : q.ask)}
-                  </PriceFlash>
-                </span>
-              </Button>
-            </div>
           </div>
         </section>
       </div>
