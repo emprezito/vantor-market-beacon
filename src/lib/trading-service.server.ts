@@ -38,6 +38,7 @@ export type TradingAccount = Pick<
   | "login"
   | "nickname"
   | "label"
+  | "kind"
   | "server"
   | "currency"
   | "leverage"
@@ -58,6 +59,7 @@ export type AccountSummary = {
   login: number;
   nickname: string;
   label: string;
+  kind: string;
   server: string;
   currency: string;
   leverage: number;
@@ -82,7 +84,7 @@ export type ModifyPositionInput = {
 };
 
 export const TRADING_ACCOUNT_SELECT =
-  "id, user_id, server_id, login, nickname, label, server, currency, leverage, access_role, status, balance, session_epoch";
+  "id, user_id, server_id, login, nickname, label, kind, server, currency, leverage, access_role, status, balance, session_epoch";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -125,6 +127,7 @@ function accountSummary(account: TradingAccount): AccountSummary {
     login: account.login,
     nickname: account.nickname,
     label: account.label,
+    kind: account.kind,
     server: account.server,
     currency: account.currency,
     leverage: Number(account.leverage),
@@ -590,6 +593,9 @@ export async function moveFunds(
   kind: "deposit" | "withdraw",
   amount: number,
 ) {
+  if (account.kind === "real") {
+    throw new Error("Use the deposit page to fund a real account");
+  }
   const state = await requireTradable(db, account);
   const now = Date.now();
   const quotes = await loadQuoteMap(

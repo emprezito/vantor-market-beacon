@@ -6,6 +6,10 @@ export function isPartnerRole(value: string | null | undefined): value is "partn
   return value === "partner";
 }
 
+export function isPlatformAdmin(value: string | null | undefined): value is "platform_admin" {
+  return value === "platform_admin";
+}
+
 export function asServerRole(value: string): ServerRole {
   return value === "owner" || value === "admin" ? value : "member";
 }

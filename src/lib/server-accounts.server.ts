@@ -28,6 +28,8 @@ export type AccountFields = Pick<
   | "access_role"
 >;
 
+export type RealAccountFields = Omit<AccountFields, "kind" | "balance">;
+
 export type AccountCredentialPatch = Pick<
   AccountUpdate,
   "trader_hash" | "investor_hash" | "status"
@@ -124,12 +126,28 @@ export async function insertAccount(
         status: "active",
         ...fields,
       })
-      .select("id, login, nickname, label, server, server_id, balance, currency, leverage")
+      .select("id, login, nickname, label, kind, server, server_id, balance, currency, leverage")
       .single();
     if (!error && data) return data;
     if (error && error.code !== "23505") throw new Error(error.message);
   }
   throw new Error("Could not allocate an account number. Please try again.");
+}
+
+export async function insertRealAccount(
+  admin: SupabaseClient<Database>,
+  fields: RealAccountFields,
+  passwords: AccountPasswords,
+) {
+  return insertAccount(
+    admin,
+    {
+      ...fields,
+      kind: "real",
+      balance: 0,
+    },
+    passwords,
+  );
 }
 
 export async function insertAccountWithInitialTransaction(

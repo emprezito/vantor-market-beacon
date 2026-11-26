@@ -19,7 +19,7 @@ vi.mock("@/lib/meridian.server", () => ({
 }));
 vi.mock("@/lib/trading-service.server", () => ({
   TRADING_ACCOUNT_SELECT:
-    "id, user_id, server_id, login, nickname, label, server, currency, leverage, access_role, status, balance, session_epoch",
+    "id, user_id, server_id, login, nickname, label, kind, server, currency, leverage, access_role, status, balance, session_epoch",
   getAccountView: vi.fn(),
   openMarketOrder: vi.fn(),
   placeLimitOrder: vi.fn(),
@@ -73,6 +73,7 @@ const account: TradingAccount = {
   login: 12345678,
   nickname: "Test",
   label: "Standard",
+  kind: "demo",
   server: "Demo",
   currency: "USD",
   leverage: 100,
@@ -114,6 +115,7 @@ const view: AccountView = {
     login: 12345678,
     nickname: "Test",
     label: "Standard",
+    kind: "demo",
     server: "Demo",
     currency: "USD",
     leverage: 100,

@@ -32,6 +32,156 @@ export type Database = {
         }
         Relationships: []
       }
+      deposit_intents: {
+        Row: {
+          account_id: string
+          amount: number
+          checkout_url: string | null
+          completed_at: string | null
+          created_at: string
+          currency: string
+          failure_reason: string | null
+          id: string
+          paid_amount: number | null
+          provider: string
+          provider_charge_id: string | null
+          provider_checkout_id: string | null
+          provider_reference: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          checkout_url?: string | null
+          completed_at?: string | null
+          created_at?: string
+          currency: string
+          failure_reason?: string | null
+          id?: string
+          paid_amount?: number | null
+          provider?: string
+          provider_charge_id?: string | null
+          provider_checkout_id?: string | null
+          provider_reference: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          checkout_url?: string | null
+          completed_at?: string | null
+          created_at?: string
+          currency?: string
+          failure_reason?: string | null
+          id?: string
+          paid_amount?: number | null
+          provider?: string
+          provider_charge_id?: string | null
+          provider_checkout_id?: string | null
+          provider_reference?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      kyc_documents: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_path: string
+          id: string
+          kind: string
+          mime_type: string
+          size_bytes: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_path: string
+          id?: string
+          kind: string
+          mime_type: string
+          size_bytes: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_path?: string
+          id?: string
+          kind?: string
+          mime_type?: string
+          size_bytes?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      kyc_profiles: {
+        Row: {
+          address_line1: string | null
+          address_line2: string | null
+          city: string | null
+          country: string | null
+          created_at: string
+          date_of_birth: string | null
+          first_name: string | null
+          last_name: string | null
+          phone: string | null
+          postal_code: string | null
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          phone?: string | null
+          postal_code?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          phone?: string | null
+          postal_code?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       login_attempts: {
         Row: {
           attempts: number
@@ -158,6 +308,33 @@ export type Database = {
           take_profit?: number | null
           triggered_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      payment_events: {
+        Row: {
+          error: string | null
+          id: string
+          payload: Json
+          processed_at: string | null
+          received_at: string
+          type: string
+        }
+        Insert: {
+          error?: string | null
+          id: string
+          payload: Json
+          processed_at?: string | null
+          received_at?: string
+          type: string
+        }
+        Update: {
+          error?: string | null
+          id?: string
+          payload?: Json
+          processed_at?: string | null
+          received_at?: string
+          type?: string
         }
         Relationships: []
       }
@@ -420,6 +597,15 @@ export type Database = {
           p_expected_positions: string[]
           p_payload: Json
           p_user: string
+        }
+        Returns: Json
+      }
+      credit_real_account_deposit: {
+        Args: {
+          p_amount: number | null
+          p_charge_id: string
+          p_checkout_id: string
+          p_deposit: string
         }
         Returns: Json
       }

@@ -14,11 +14,13 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAccountsRouteImport } from './routes/_authenticated/accounts'
 import { Route as AuthenticatedHistoryRouteImport } from './routes/_authenticated/history'
+import { Route as AuthenticatedKycRouteImport } from './routes/_authenticated/kyc'
 import { Route as AuthenticatedOrdersRouteImport } from './routes/_authenticated/orders'
 import { Route as AuthenticatedPartnerRouteImport } from './routes/_authenticated/partner'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
 import { Route as AuthenticatedTradeRouteImport } from './routes/_authenticated/trade'
 import { Route as AuthenticatedWalletRouteImport } from './routes/_authenticated/wallet'
+import { Route as AuthenticatedAdminKycRouteImport } from './routes/_authenticated/admin.kyc'
 import { Route as AuthenticatedPartnerIndexRouteImport } from './routes/_authenticated/partner.index'
 import { Route as AuthenticatedPartnerAccountsRouteImport } from './routes/_authenticated/partner.accounts'
 
@@ -46,6 +48,11 @@ const AuthenticatedHistoryRoute = AuthenticatedHistoryRouteImport.update({
   path: '/history',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedKycRoute = AuthenticatedKycRouteImport.update({
+  id: '/kyc',
+  path: '/kyc',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedOrdersRoute = AuthenticatedOrdersRouteImport.update({
   id: '/orders',
   path: '/orders',
@@ -71,6 +78,11 @@ const AuthenticatedWalletRoute = AuthenticatedWalletRouteImport.update({
   path: '/wallet',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminKycRoute = AuthenticatedAdminKycRouteImport.update({
+  id: '/admin/kyc',
+  path: '/admin/kyc',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPartnerIndexRoute =
   AuthenticatedPartnerIndexRouteImport.update({
     id: '/',
@@ -89,11 +101,13 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/accounts': typeof AuthenticatedAccountsRoute
   '/history': typeof AuthenticatedHistoryRoute
+  '/kyc': typeof AuthenticatedKycRoute
   '/orders': typeof AuthenticatedOrdersRoute
   '/partner': typeof AuthenticatedPartnerRouteWithChildren
   '/profile': typeof AuthenticatedProfileRoute
   '/trade': typeof AuthenticatedTradeRoute
   '/wallet': typeof AuthenticatedWalletRoute
+  '/admin/kyc': typeof AuthenticatedAdminKycRoute
   '/partner/accounts': typeof AuthenticatedPartnerAccountsRoute
   '/partner/': typeof AuthenticatedPartnerIndexRoute
 }
@@ -102,10 +116,12 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/accounts': typeof AuthenticatedAccountsRoute
   '/history': typeof AuthenticatedHistoryRoute
+  '/kyc': typeof AuthenticatedKycRoute
   '/orders': typeof AuthenticatedOrdersRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/trade': typeof AuthenticatedTradeRoute
   '/wallet': typeof AuthenticatedWalletRoute
+  '/admin/kyc': typeof AuthenticatedAdminKycRoute
   '/partner/accounts': typeof AuthenticatedPartnerAccountsRoute
   '/partner': typeof AuthenticatedPartnerIndexRoute
 }
@@ -116,11 +132,13 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/accounts': typeof AuthenticatedAccountsRoute
   '/_authenticated/history': typeof AuthenticatedHistoryRoute
+  '/_authenticated/kyc': typeof AuthenticatedKycRoute
   '/_authenticated/orders': typeof AuthenticatedOrdersRoute
   '/_authenticated/partner': typeof AuthenticatedPartnerRouteWithChildren
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/trade': typeof AuthenticatedTradeRoute
   '/_authenticated/wallet': typeof AuthenticatedWalletRoute
+  '/_authenticated/admin/kyc': typeof AuthenticatedAdminKycRoute
   '/_authenticated/partner/accounts': typeof AuthenticatedPartnerAccountsRoute
   '/_authenticated/partner/': typeof AuthenticatedPartnerIndexRoute
 }
@@ -131,11 +149,13 @@ export interface FileRouteTypes {
     | '/auth'
     | '/accounts'
     | '/history'
+    | '/kyc'
     | '/orders'
     | '/partner'
     | '/profile'
     | '/trade'
     | '/wallet'
+    | '/admin/kyc'
     | '/partner/accounts'
     | '/partner/'
   fileRoutesByTo: FileRoutesByTo
@@ -144,10 +164,12 @@ export interface FileRouteTypes {
     | '/auth'
     | '/accounts'
     | '/history'
+    | '/kyc'
     | '/orders'
     | '/profile'
     | '/trade'
     | '/wallet'
+    | '/admin/kyc'
     | '/partner/accounts'
     | '/partner'
   id:
@@ -157,11 +179,13 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/accounts'
     | '/_authenticated/history'
+    | '/_authenticated/kyc'
     | '/_authenticated/orders'
     | '/_authenticated/partner'
     | '/_authenticated/profile'
     | '/_authenticated/trade'
     | '/_authenticated/wallet'
+    | '/_authenticated/admin/kyc'
     | '/_authenticated/partner/accounts'
     | '/_authenticated/partner/'
   fileRoutesById: FileRoutesById
@@ -209,6 +233,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHistoryRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/kyc': {
+      id: '/_authenticated/kyc'
+      path: '/kyc'
+      fullPath: '/kyc'
+      preLoaderRoute: typeof AuthenticatedKycRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/orders': {
       id: '/_authenticated/orders'
       path: '/orders'
@@ -244,6 +275,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWalletRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/kyc': {
+      id: '/_authenticated/admin/kyc'
+      path: '/admin/kyc'
+      fullPath: '/admin/kyc'
+      preLoaderRoute: typeof AuthenticatedAdminKycRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/partner/': {
       id: '/_authenticated/partner/'
       path: '/'
@@ -277,21 +315,25 @@ const AuthenticatedPartnerRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountsRoute: typeof AuthenticatedAccountsRoute
   AuthenticatedHistoryRoute: typeof AuthenticatedHistoryRoute
+  AuthenticatedKycRoute: typeof AuthenticatedKycRoute
   AuthenticatedOrdersRoute: typeof AuthenticatedOrdersRoute
   AuthenticatedPartnerRoute: typeof AuthenticatedPartnerRouteWithChildren
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedTradeRoute: typeof AuthenticatedTradeRoute
   AuthenticatedWalletRoute: typeof AuthenticatedWalletRoute
+  AuthenticatedAdminKycRoute: typeof AuthenticatedAdminKycRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountsRoute: AuthenticatedAccountsRoute,
   AuthenticatedHistoryRoute: AuthenticatedHistoryRoute,
+  AuthenticatedKycRoute: AuthenticatedKycRoute,
   AuthenticatedOrdersRoute: AuthenticatedOrdersRoute,
   AuthenticatedPartnerRoute: AuthenticatedPartnerRouteWithChildren,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedTradeRoute: AuthenticatedTradeRoute,
   AuthenticatedWalletRoute: AuthenticatedWalletRoute,
+  AuthenticatedAdminKycRoute: AuthenticatedAdminKycRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

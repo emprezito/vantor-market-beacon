@@ -1,3 +1,5 @@
+import { supportsRealDeposits } from "./real-deposits";
+
 export const CURRENCIES = ["USD", "EUR", "GBP", "NGN"] as const;
 export const ACCOUNT_TYPES = ["Standard", "Pro", "Raw Spread"] as const;
 export const LEVERAGES = [1, 10, 50, 100, 200, 500, 1000, 2000] as const;
@@ -17,11 +19,14 @@ export type AccountPasswords = {
   investorPassword: string;
 };
 
-export type NewAccountInput = AccountPasswords & {
+export type NewRealAccountInput = AccountPasswords & {
   nickname: string;
   accountType: string;
   currency: string;
   leverage: number;
+};
+
+export type NewAccountInput = NewRealAccountInput & {
   balance: number;
 };
 
@@ -107,6 +112,24 @@ export function defaultsForServer(server: TradingServer): ServerDefaults {
   };
 }
 
+export function validateNewRealAccountForServer(i: NewRealAccountInput, server: TradingServer) {
+  const account = validateNewRealAccount(i);
+  const { accountTypes, currencies, leverages } = serverOptions(server);
+  if (!accountTypes.includes(account.accountType)) {
+    throw new Error(`${server.name} does not offer ${account.accountType} accounts`);
+  }
+  if (!currencies.includes(account.currency)) {
+    throw new Error(`${server.name} does not support ${account.currency} accounts`);
+  }
+  if (!leverages.includes(account.leverage)) {
+    throw new Error(`${server.name} does not support 1:${account.leverage} leverage`);
+  }
+  if (!supportsRealDeposits(account.currency)) {
+    throw new Error("Real accounts are available in USD and NGN");
+  }
+  return account;
+}
+
 export function validateNewAccountForServer(i: NewAccountInput, server: TradingServer) {
   const account = validateNewAccount(i);
   const { accountTypes, currencies, leverages } = serverOptions(server);
@@ -129,12 +152,20 @@ export function validateNewAccountForServer(i: NewAccountInput, server: TradingS
   return account;
 }
 
+function hasControlCharacters(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    if (code < 32 || code === 127) return true;
+  }
+  return false;
+}
+
 function validateAccountPassword(value: unknown, label: string) {
   if (typeof value !== "string") throw new Error(`${label} is required`);
   if (value.length < ACCOUNT_PASSWORD_MIN || value.length > ACCOUNT_PASSWORD_MAX) {
     throw new Error(`${label} must be ${ACCOUNT_PASSWORD_MIN}–${ACCOUNT_PASSWORD_MAX} characters`);
   }
-  if (/[\u0000-\u001f\u007f]/.test(value)) {
+  if (hasControlCharacters(value)) {
     throw new Error(`${label} contains unsupported characters`);
   }
   if (!/[A-Za-z]/.test(value) || !/[0-9]/.test(value)) {
@@ -152,7 +183,7 @@ export function validateAccountPasswords(i: AccountPasswords) {
   return { traderPassword, investorPassword };
 }
 
-export function validateNewAccount(i: NewAccountInput) {
+function validateAccountFields(i: NewRealAccountInput) {
   const nickname = typeof i.nickname === "string" ? i.nickname.trim() : "";
   if (nickname.length < 1 || nickname.length > NICKNAME_MAX)
     throw new Error(`Nickname must be 1–${NICKNAME_MAX} characters`);
@@ -163,6 +194,24 @@ export function validateNewAccount(i: NewAccountInput) {
   const leverage = Number(i.leverage);
   if (!(LEVERAGES as readonly number[]).includes(leverage))
     throw new Error("Choose a valid leverage");
+  const { traderPassword, investorPassword } = validateAccountPasswords(i);
+  return {
+    nickname,
+    accountType: i.accountType,
+    currency: i.currency,
+    leverage,
+    traderPassword,
+    investorPassword,
+  };
+}
+
+export function validateNewRealAccount(i: NewRealAccountInput) {
+  return validateAccountFields(i);
+}
+
+export function validateNewAccount(i: NewAccountInput) {
+  const { nickname, accountType, currency, leverage, traderPassword, investorPassword } =
+    validateAccountFields(i);
   const balance = Number(i.balance);
   if (
     !Number.isFinite(balance) ||
@@ -174,11 +223,10 @@ export function validateNewAccount(i: NewAccountInput) {
       `Starting balance must be between ${BALANCE_MIN} and ${BALANCE_MAX.toLocaleString("en-US")} with at most two decimals`,
     );
   }
-  const { traderPassword, investorPassword } = validateAccountPasswords(i);
   return {
     nickname,
-    accountType: i.accountType,
-    currency: i.currency,
+    accountType,
+    currency,
     leverage,
     balance,
     traderPassword,

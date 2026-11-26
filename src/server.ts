@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { handleBachsWebhook } from "./lib/bachs-webhook.server";
 import { handleBrokerDiscovery } from "./lib/terminal-api/discovery";
 import { handleTerminalApi } from "./lib/terminal-api/router";
 
@@ -14,6 +15,9 @@ type WorkerEnv = {
   MERIDIAN_API_BASE_URL?: string;
   MERIDIAN_WS_URL?: string;
   MARKET_WS_URL?: string;
+  BACHS_API_KEY?: string;
+  BACHS_API_BASE_URL?: string;
+  BACHS_WEBHOOK_SECRET?: string;
   TERMINAL_TOKEN_SECRET?: string;
   PUBLIC_BROKER_BASE_URL?: string;
   ALLOWED_ORIGINS?: string;
@@ -67,6 +71,10 @@ export default {
     try {
       const runtimeEnv = (env ?? {}) as WorkerEnv;
       (globalThis as RealtimeGlobals).__env__ = runtimeEnv;
+
+      if (request.method === "POST" && new URL(request.url).pathname === "/api/webhooks/bachs") {
+        return await handleBachsWebhook(request);
+      }
 
       const discovery = handleBrokerDiscovery(request, runtimeEnv);
       if (discovery) return discovery;

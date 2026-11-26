@@ -5,7 +5,10 @@ import {
   normalizeServer,
   validateNewAccount,
   validateNewAccountForServer,
+  validateNewRealAccount,
+  validateNewRealAccountForServer,
   validateServerId,
+  type NewRealAccountInput,
   type TradingServer,
 } from "@/lib/account-options";
 
@@ -66,6 +69,38 @@ export const openDemoAccount = createServerFn({ method: "POST" })
         server_id: server.id,
       },
       context.userId,
+      { traderPassword, investorPassword },
+    );
+  });
+
+export const openRealAccount = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: NewRealAccountInput & { serverId: string }) => ({
+    ...validateNewRealAccount(i),
+    serverId: validateServerId(i.serverId),
+  }))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { requireKycApproved } = await import("@/lib/kyc.server");
+    const { loadServerForUser, insertRealAccount } = await import("@/lib/server-accounts.server");
+    await requireKycApproved(supabaseAdmin, context.userId);
+    const server = await loadServerForUser(supabaseAdmin, data.serverId, context.userId);
+    const { traderPassword, investorPassword, ...account } = validateNewRealAccountForServer(
+      data,
+      server,
+    );
+    return insertRealAccount(
+      supabaseAdmin,
+      {
+        user_id: context.userId,
+        access_role: "trader",
+        nickname: account.nickname,
+        label: account.accountType,
+        currency: account.currency,
+        leverage: account.leverage,
+        server: server.name,
+        server_id: server.id,
+      },
       { traderPassword, investorPassword },
     );
   });

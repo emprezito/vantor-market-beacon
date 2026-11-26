@@ -10,7 +10,7 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/hooks/use-account";
 import { DesktopSidebar, MobileBottomNav, MobileHeader } from "@/components/app-nav";
-import { isPartnerRole } from "@/lib/partner";
+import { isPartnerRole, isPlatformAdmin } from "@/lib/partner";
 import { useMarketCatalog } from "@/hooks/use-market-catalog";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -24,13 +24,21 @@ export const Route = createFileRoute("/_authenticated")({
       .eq("user_id", data.user.id)
       .maybeSingle();
     const partner = isPartnerRole(appRole?.role);
-    if (partner && !location.pathname.startsWith("/partner")) {
-      throw redirect({ to: "/partner" });
-    }
-    if (!partner && location.pathname.startsWith("/partner")) {
+    const admin = isPlatformAdmin(appRole?.role);
+    if (!admin && location.pathname.startsWith("/admin")) {
       throw redirect({ to: "/trade" });
     }
-    return { user: data.user, partner };
+    if (!partner && location.pathname.startsWith("/partner")) {
+      throw redirect({ to: admin ? "/admin/kyc" : "/trade" });
+    }
+    if (
+      partner &&
+      !location.pathname.startsWith("/partner") &&
+      !(admin && location.pathname.startsWith("/admin"))
+    ) {
+      throw redirect({ to: "/partner" });
+    }
+    return { user: data.user, partner, admin };
   },
   component: Layout,
 });
@@ -39,7 +47,7 @@ function Layout() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  const { partner } = Route.useRouteContext();
+  const { partner, admin } = Route.useRouteContext();
   const { accounts, activeAccount, setActiveAccount, data } = useAccount();
   useMarketCatalog(!partner);
   const ordersActive = (data?.open?.length ?? 0) > 0 || (data?.pending?.length ?? 0) > 0;
@@ -67,6 +75,7 @@ function Layout() {
           onSignOut={signOut}
           ordersActive={ordersActive}
           partner={partner}
+          admin={admin}
         />
       ) : null}
       <div className={immersiveTerminal ? "lg:hidden" : undefined}>
@@ -77,6 +86,7 @@ function Layout() {
           onSignOut={signOut}
           ordersActive={ordersActive}
           partner={partner}
+          admin={admin}
         />
       </div>
       <div className={partner ? "pb-0" : immersiveTerminal ? "pb-20 lg:pb-0" : "pb-20 xl:pb-0"}>

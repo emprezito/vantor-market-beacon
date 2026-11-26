@@ -1,23 +1,18 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
 import { moveFunds } from "@/lib/trading.functions";
+import { createRealDeposit, listRealDeposits } from "@/lib/deposits.functions";
 import { useAccount } from "@/hooks/use-account";
 import { formatMoney } from "@/lib/account-options";
+import { depositStatusLabel, validateDepositAmount } from "@/lib/real-deposits";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/wallet")({
   head: () => ({
-    meta: [
-      { title: "Wallet — Vantor" },
-      { name: "description", content: "Manage your Vantor funds and review transactions." },
-      { property: "og:title", content: "Wallet — Vantor" },
-      { property: "og:description", content: "Manage your trading balance." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-    ],
+    meta: [{ title: "Wallet — Vantor" }],
   }),
   component: Wallet,
 });
@@ -27,49 +22,93 @@ function Wallet() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [amount, setAmount] = useState("1000");
-  const fn = useServerFn(moveFunds);
-  const m = useMutation({
+  const moveFn = useServerFn(moveFunds);
+  const listDepositsFn = useServerFn(listRealDeposits);
+  const createDepositFn = useServerFn(createRealDeposit);
+  const isReal = activeAccount?.kind === "real";
+
+  const move = useMutation({
     mutationFn: (kind: "deposit" | "withdraw") => {
       if (!activeAccount) throw new Error("Open a trading account first");
-      return fn({ data: { accountId: activeAccount.id, kind, amount: Number(amount) } });
+      return moveFn({ data: { accountId: activeAccount.id, kind, amount: Number(amount) } });
     },
-    onSuccess: (_r, kind) => {
+    onSuccess: (_result, kind) => {
       toast.success(kind === "deposit" ? "Funds added" : "Withdrawal complete");
       qc.invalidateQueries({ queryKey: ["account"] });
       qc.invalidateQueries({ queryKey: ["my-accounts"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (mutationError: Error) => toast.error(mutationError.message),
   });
-  if (isPending)
+
+  const depositsQuery = useQuery({
+    queryKey: ["real-deposits"],
+    queryFn: () => listDepositsFn(),
+    enabled: !!isReal,
+    refetchInterval: isReal ? 5_000 : false,
+  });
+
+  const makeDeposit = useMutation({
+    mutationFn: () => {
+      if (!activeAccount) throw new Error("Choose a real account");
+      return createDepositFn({ data: { accountId: activeAccount.id, amount: Number(amount) } });
+    },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["real-deposits"] });
+      window.location.assign(result.checkoutUrl);
+    },
+    onError: (mutationError: Error) => toast.error(mutationError.message),
+  });
+
+  if (isPending) {
     return (
       <main className="px-4 py-6 sm:px-6" role="status">
-        Loading your wallet…
+        Loading
       </main>
     );
-  if (error)
+  }
+  if (error) {
     return (
       <main className="space-y-4 px-4 py-6 sm:px-6">
         <p role="alert">{error.message}</p>
         <Button onClick={() => refetch()}>Retry</Button>
       </main>
     );
+  }
   if (!activeAccount) {
     return (
       <main className="space-y-4 px-4 py-6 sm:px-6">
         <h1 className="text-2xl font-bold">Wallet</h1>
-        <p>Open a trading account to manage its funds.</p>
         <Button onClick={() => navigate({ to: "/accounts" })}>Open an account</Button>
       </main>
     );
   }
+
   const currency = activeAccount.currency;
   const readOnly = activeAccount.access_role === "investor";
+  let realDepositValid = false;
+  if (isReal) {
+    try {
+      validateDepositAmount(Number(amount), currency);
+      realDepositValid = true;
+    } catch {
+      realDepositValid = false;
+    }
+  }
+  const pendingDeposits = (depositsQuery.data ?? []).filter(
+    (deposit) => deposit.accountId === activeAccount.id && deposit.status === "pending",
+  );
+
   return (
     <main className="mx-auto grid max-w-5xl gap-4 px-4 py-6 sm:gap-6 sm:px-6 lg:grid-cols-[320px_1fr]">
       <section className="space-y-4 rounded-xl bg-muted p-4 sm:p-6">
         <div>
-          <div className="text-xs text-muted-foreground">
-            Balance · {activeAccount.nickname} · #{activeAccount.login} · {currency}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              {activeAccount.nickname} · #{activeAccount.login} · {currency}
+            </span>
+            <span className="rounded bg-background px-1.5 py-0.5 font-semibold">
+              {isReal ? "Real" : "Demo"}
+            </span>
           </div>
           <div className="break-words text-2xl font-extrabold sm:text-3xl">
             {formatMoney(data?.balance ?? 0, currency)}
@@ -83,28 +122,57 @@ function Wallet() {
           max="1000000"
           step="0.01"
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(event) => setAmount(event.target.value)}
         />
-        <div className="grid grid-cols-2 gap-2">
-          <Button disabled={m.isPending || readOnly} onClick={() => m.mutate("deposit")}>
-            Deposit
-          </Button>
+        {isReal ? (
           <Button
-            variant="outline"
-            disabled={m.isPending || readOnly}
-            onClick={() => m.mutate("withdraw")}
+            className="w-full"
+            disabled={makeDeposit.isPending || readOnly || !realDepositValid}
+            onClick={() => makeDeposit.mutate()}
           >
-            Withdraw
+            {makeDeposit.isPending ? "Starting" : "Deposit"}
           </Button>
-        </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <Button disabled={move.isPending || readOnly} onClick={() => move.mutate("deposit")}>
+              Deposit
+            </Button>
+            <Button
+              variant="outline"
+              disabled={move.isPending || readOnly}
+              onClick={() => move.mutate("withdraw")}
+            >
+              Withdraw
+            </Button>
+          </div>
+        )}
+        {pendingDeposits.length > 0 && (
+          <div className="space-y-2">
+            {pendingDeposits.map((deposit) => (
+              <div
+                key={deposit.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-background px-3 py-2 text-sm"
+              >
+                <span>
+                  {formatMoney(deposit.amount, deposit.currency)} ·{" "}
+                  {depositStatusLabel(deposit.status)}
+                </span>
+                {deposit.checkoutUrl && (
+                  <Button asChild size="sm" variant="outline">
+                    <a href={deposit.checkoutUrl}>Continue</a>
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
+
       <section className="rounded-xl border">
         <h2 className="border-b px-4 py-3 font-bold">Transactions</h2>
         <div className="divide-y divide-border sm:hidden">
           {(data?.transactions ?? []).length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              No transactions yet
-            </p>
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">Empty</p>
           ) : null}
           {(data?.transactions ?? []).map((transaction) => (
             <article
@@ -122,7 +190,9 @@ function Wallet() {
                 </div>
               </div>
               <div
-                className={`shrink-0 font-mono text-sm font-semibold ${transaction.kind === "withdraw" ? "text-negative" : "text-positive"}`}
+                className={`shrink-0 font-mono text-sm font-semibold ${
+                  transaction.kind === "withdraw" ? "text-negative" : "text-positive"
+                }`}
               >
                 {transaction.kind === "withdraw" ? "-" : "+"}
                 {formatMoney(Number(transaction.amount), currency)}
@@ -135,22 +205,24 @@ function Wallet() {
             <tbody>
               {(data?.transactions ?? []).length === 0 && (
                 <tr>
-                  <td className="px-4 py-6 text-center text-muted-foreground">
-                    No transactions yet
-                  </td>
+                  <td className="px-4 py-6 text-center text-muted-foreground">Empty</td>
                 </tr>
               )}
-              {(data?.transactions ?? []).map((t) => (
-                <tr key={t.id} className="border-t first:border-0">
-                  <td className="px-4 py-2">{new Date(t.created_at).toLocaleString()}</td>
+              {(data?.transactions ?? []).map((transaction) => (
+                <tr key={transaction.id} className="border-t first:border-0">
+                  <td className="px-4 py-2">{new Date(transaction.created_at).toLocaleString()}</td>
                   <td className="px-4 py-2 capitalize">
-                    {t.kind === "bonus" || t.kind === "initial" ? "Starting balance" : t.kind}
+                    {transaction.kind === "bonus" || transaction.kind === "initial"
+                      ? "Starting balance"
+                      : transaction.kind}
                   </td>
                   <td
-                    className={`px-4 py-2 text-right font-semibold ${t.kind === "withdraw" ? "text-negative" : "text-positive"}`}
+                    className={`px-4 py-2 text-right font-semibold ${
+                      transaction.kind === "withdraw" ? "text-negative" : "text-positive"
+                    }`}
                   >
-                    {t.kind === "withdraw" ? "-" : "+"}
-                    {formatMoney(Number(t.amount), currency)}
+                    {transaction.kind === "withdraw" ? "-" : "+"}
+                    {formatMoney(Number(transaction.amount), currency)}
                   </td>
                 </tr>
               ))}

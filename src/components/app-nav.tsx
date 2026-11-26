@@ -1,10 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import {
+  ClipboardCheck,
   History,
   ListOrdered,
   LogOut,
   Menu,
   Server,
+  ShieldCheck,
   TrendingUp,
   UserCircle,
   Users,
@@ -37,6 +39,8 @@ type NavTo =
   | "/wallet"
   | "/partner"
   | "/partner/accounts"
+  | "/kyc"
+  | "/admin/kyc"
   | "/profile";
 
 const navItems: { to: NavTo; label: string; icon: LucideIcon }[] = [
@@ -45,8 +49,10 @@ const navItems: { to: NavTo; label: string; icon: LucideIcon }[] = [
   { to: "/orders", label: "Orders", icon: ListOrdered },
   { to: "/history", label: "History", icon: History },
   { to: "/wallet", label: "Wallet", icon: Wallet },
+  { to: "/kyc", label: "Verification", icon: ShieldCheck },
   { to: "/partner", label: "Partner", icon: Server },
   { to: "/partner/accounts", label: "Accounts", icon: Users },
+  { to: "/admin/kyc", label: "Verification", icon: ClipboardCheck },
   { to: "/profile", label: "Profile", icon: UserCircle },
 ];
 
@@ -54,10 +60,20 @@ const bottomItems = navItems.filter((item) =>
   ["/accounts", "/trade", "/orders", "/profile"].includes(item.to),
 );
 
-function visibleNavItems(partner: boolean) {
-  return partner
-    ? navItems.filter((item) => item.to === "/partner" || item.to === "/partner/accounts")
-    : navItems.filter((item) => item.to !== "/partner" && item.to !== "/partner/accounts");
+function visibleNavItems(partner: boolean, admin: boolean) {
+  if (partner) {
+    return navItems.filter(
+      (item) =>
+        item.to === "/partner" ||
+        item.to === "/partner/accounts" ||
+        (admin && item.to === "/admin/kyc"),
+    );
+  }
+  return navItems.filter((item) => {
+    if (item.to.startsWith("/partner")) return false;
+    if (item.to === "/admin/kyc") return admin;
+    return true;
+  });
 }
 
 export function AccountPicker({
@@ -119,6 +135,7 @@ export function DesktopSidebar({
   onSignOut,
   ordersActive,
   partner = false,
+  admin = false,
 }: {
   accounts: NavAccount[];
   activeAccount: NavAccount | null;
@@ -126,6 +143,7 @@ export function DesktopSidebar({
   onSignOut: () => void;
   ordersActive: boolean;
   partner?: boolean;
+  admin?: boolean;
 }) {
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-52 flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 text-sidebar-foreground xl:flex">
@@ -155,7 +173,7 @@ export function DesktopSidebar({
         </div>
       )}
       <nav className="mt-4 flex flex-1 flex-col gap-1">
-        {visibleNavItems(partner).map((item) => {
+        {visibleNavItems(partner, admin).map((item) => {
           const showDot = item.to === "/orders" && ordersActive;
           return (
             <Link
@@ -199,6 +217,7 @@ export function MobileHeader({
   onSignOut,
   ordersActive,
   partner = false,
+  admin = false,
 }: {
   accounts: NavAccount[];
   activeAccount: NavAccount | null;
@@ -206,6 +225,7 @@ export function MobileHeader({
   onSignOut: () => void;
   ordersActive: boolean;
   partner?: boolean;
+  admin?: boolean;
 }) {
   return (
     <header className="sticky top-0 z-40 border-b border-sidebar-border bg-sidebar/95 text-sidebar-foreground backdrop-blur xl:hidden">
@@ -234,7 +254,7 @@ export function MobileHeader({
               {partner ? "Partner navigation" : "Account navigation"}
             </SheetDescription>
             <nav className="mt-5 flex flex-col gap-0.5">
-              {visibleNavItems(partner).map((item) => {
+              {visibleNavItems(partner, admin).map((item) => {
                 const showDot = item.to === "/orders" && ordersActive;
                 return (
                   <SheetClose asChild key={item.to}>

@@ -35,6 +35,7 @@ const account: TradingAccount = {
   login: 12345678,
   nickname: "Test",
   label: "Standard",
+  kind: "demo",
   server: "Demo",
   currency: "USD",
   leverage: 100,

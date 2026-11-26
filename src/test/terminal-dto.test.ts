@@ -37,6 +37,7 @@ function view(fxRate: number): AccountView {
       login: 82763576,
       nickname: "FNG Testing Account",
       label: "FNG Testing Account",
+      kind: "demo",
       server: "FundedNG",
       currency: "NGN",
       leverage: 100,
